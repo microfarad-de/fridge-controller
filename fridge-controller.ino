@@ -58,7 +58,7 @@
  */
 #define SERIAL_BAUD               57600      // Serial communication baud rate
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
-#define TRACE_BUF_SIZE            100        // Trace buffer size in words
+#define TRACE_BUF_SIZE            200        // Trace buffer size in words
 #define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
 #define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in ms
 
@@ -80,10 +80,10 @@ typedef enum  {
  * State variables
  */
 struct State_t {
-  State_e state = STATE_OFF_ENTRY;   // Main state machine state
-  bool    inputEnabled     = false;  // Input pin state after debounce
-  uint8_t pwmDutyCycle     = 0;      // Current PWM duty cycle at the output pin
-  uint8_t lastPwmDutyCycle = 0;      // Previous PWM duty cycle
+  State_e state = STATE_OFF_ENTRY;    // Main state machine state
+  bool    inputEnabled      = false;  // Input pin state after debounce
+  uint8_t pwmDutyCycle      = 0;      // PWM duty cycle at the output pin
+  uint8_t savedPwmDutyCycle = 0;      // Saved PWM duty cycle
 } S;
 
 
@@ -95,8 +95,13 @@ struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
   uint32_t minOnDurationS  = 240;      // Minimum allowed compressor on duration in seconds
   uint32_t minOffDurationS = 60;       // Minimum allowed compressor off duration in seconds
-  uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM
-  uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM
+  uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM, larger value decreases RPM
+  uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM, smaller value increases RPM
+  uint8_t  padding0[2];                // Memory alignment padding
+  uint32_t speedAdjustDelayS = 120;    // Wait this omount of time in seconds after minOnDurationS
+                                       // or minOffDurationS elapses before adjusting compressor speed
+  uint8_t  speedAdjustRate = 10;       // Increase or decreas PWM by this amount of steps per minute
+  uint8_t  padding1[11];               // Memory alignment padding
 } Nvm;
 
 
@@ -113,11 +118,17 @@ TraceClass Trace;
  */
 const char *traceMsgList[] = {
   "Compressor on",
-  "Compressor off"
+  "Compressor off",
+  "Power on",
+  "Increase speed %d",
+  "Decrease speed %d"
 };
 enum {
   TRC_COMPRESSOR_ON,
   TRC_COMPRESSOR_OFF,
+  TRC_POWER_ON,
+  TRC_INCREASE_SPEED,
+  TRC_DECREASE_SPEED,
   TRC_COUNT
 };
 static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
@@ -143,6 +154,8 @@ int cmdSetMinOnDuration  (int argc, char **argv);
 int cmdSetMinOffDuration (int argc, char **argv);
 int cmdSetMinDutyCycle   (int argc, char **argv);
 int cmdSetMaxDutyCycle   (int argc, char **argv);
+int cmdSetSpeedAdjustParam (int argc, char **argv);
+int cmdReset (int argc, char **argv);
 
 
 
@@ -177,15 +190,18 @@ void setup (void)
   Cli.newCmd     ("r",       "Show the system configuration",      cmdConfig);
   Cli.newCmd     ("trace",   "Print the trace log",                cmdTrace);
   Cli.newCmd     ("t",       "Print the trace log",                cmdTrace);
-  Cli.newCmd     ("ond",     "Set min. on duration (arg: <0..10> seconds)",  cmdSetMinOnDuration);
-  Cli.newCmd     ("offd",    "Set min. off duration (arg: <0..10> seconds)", cmdSetMinOffDuration);
+  Cli.newCmd     ("ond",     "Set min. on duration (arg: <0..600> seconds)",  cmdSetMinOnDuration);
+  Cli.newCmd     ("offd",    "Set min. off duration (arg: <0..600> seconds)", cmdSetMinOffDuration);
   Cli.newCmd     ("pwml",    "Set the PWM duty for min. RPM (arg: <127..255>)", cmdSetMinDutyCycle);
   Cli.newCmd     ("pwmh",    "Set the PWM duty for max. RPM (arg: <0..254>)",   cmdSetMaxDutyCycle);
+  Cli.newCmd     ("speed",   "Set speed adjust delay & rate (args: <0..600> <1..20>)", cmdSetSpeedAdjustParam);
+  Cli.newCmd     ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
   Cli.showHelp();
 
   nvmRead();
+  Trace.log(TRC_POWER_ON);
 
-  S.lastPwmDutyCycle = Nvm.minRpmDutyCycle;
+  S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
 
   // Enable the watchdog
   wdt_enable (WDTO_1S);
@@ -247,7 +263,7 @@ void loop (void)
     // Compressor ON state entry point
     case STATE_ON_ENTRY:
       compressorOnTs = ts;
-      S.pwmDutyCycle = S.lastPwmDutyCycle;
+      S.pwmDutyCycle = S.savedPwmDutyCycle;
       S.state = STATE_ON_WAIT;
       break;
 
@@ -317,16 +333,18 @@ void setOutputPin (void)
  */
 void ledManager (void)
 {
-  if (!S.inputEnabled && 0 == S.pwmDutyCycle) {
+  bool running = (S.pwmDutyCycle > 0);
+
+  if (!S.inputEnabled && !running) {
     Led.blink(-1, 100, 2900);
   }
-  else if (S.inputEnabled && 0 == S.pwmDutyCycle) {
+  else if (S.inputEnabled && !running) {
     Led.blink(-1, 100, 900);
   }
-  else if (S.inputEnabled && S.pwmDutyCycle > 0) {
+  else if (S.inputEnabled && running) {
     Led.turnOn();
   }
-  else if (!S.inputEnabled && S.pwmDutyCycle > 0) {
+  else if (!S.inputEnabled && running) {
     Led.blink(-1, 900, 100);
   }
 }
@@ -337,6 +355,84 @@ void ledManager (void)
  */
 void speedManager (void)
 {
+  static enum {WAIT, ON, INCREASE, OFF, DECREASE} localState = WAIT;
+  static uint32_t startTs  = 0;
+  static uint32_t adjustTs = 0;
+  uint32_t ts  = millis();
+
+  switch (localState) {
+    case WAIT:
+        if (STATE_ON == S.state) {
+          startTs    = ts;
+          localState = ON;
+        }
+        else if (STATE_OFF == S.state) {
+          startTs    = ts;
+          localState = OFF;
+        }
+      break;
+
+    case ON:
+      if (ts - startTs > Nvm.speedAdjustDelayS * 1000) {
+        adjustTs   = ts;
+        localState = INCREASE;
+      }
+      if (S.state != STATE_ON) {
+        localState = WAIT;
+      }
+      break;
+
+    case INCREASE:
+      if (ts - adjustTs > 60000) {
+        if (S.savedPwmDutyCycle - Nvm.speedAdjustRate > Nvm.maxRpmDutyCycle) {
+          S.savedPwmDutyCycle -= Nvm.speedAdjustRate;
+          S.pwmDutyCycle       = S.savedPwmDutyCycle;
+          Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
+        }
+        else if (S.savedPwmDutyCycle != Nvm.maxRpmDutyCycle) {
+          S.savedPwmDutyCycle = Nvm.maxRpmDutyCycle;
+          Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
+        }
+        adjustTs = ts;
+      }
+      if (S.state != STATE_ON) {
+        localState = WAIT;
+      }
+      break;
+
+    case OFF:
+      if (ts - startTs > Nvm.speedAdjustDelayS * 1000) {
+        adjustTs   = ts;
+        localState = DECREASE;
+      }
+      if (S.state != STATE_OFF) {
+        localState = WAIT;
+      }
+      break;
+
+    case DECREASE:
+      if (ts - adjustTs > 60000) {
+        if (S.savedPwmDutyCycle + Nvm.speedAdjustRate < Nvm.minRpmDutyCycle) {
+          S.savedPwmDutyCycle += Nvm.speedAdjustRate;
+          Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
+        }
+        else if (S.savedPwmDutyCycle != Nvm.minRpmDutyCycle) {
+          S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+          Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
+        }
+        adjustTs = ts;
+      }
+      if (S.state != STATE_OFF) {
+        localState = WAIT;
+      }
+      break;
+
+    default:
+      break;
+  }
+
+
+
 
 }
 
@@ -361,14 +457,14 @@ void nvmValidate (void)
     result = true;
   }
 
-  result &= Nvm.maxRpmDutyCycle <= Nvm.minRpmDutyCycle - 10;
+  result &= Nvm.maxRpmDutyCycle <= Nvm.minRpmDutyCycle;
   result &= Nvm.maxRpmDutyCycle > 0;
   if (!result) {
-    if (NvmInit.maxRpmDutyCycle < Nvm.minRpmDutyCycle - 10) {
+    if (NvmInit.maxRpmDutyCycle < Nvm.minRpmDutyCycle) {
       Nvm.maxRpmDutyCycle = NvmInit.maxRpmDutyCycle;
     }
     else {
-      Nvm.maxRpmDutyCycle = Nvm.minRpmDutyCycle - 10;
+      Nvm.maxRpmDutyCycle = Nvm.minRpmDutyCycle;
     }
     result = true;
   }
@@ -383,6 +479,17 @@ void nvmValidate (void)
   if (!result) {
     Nvm.minOffDurationS = NvmInit.minOffDurationS;
     result = true;
+  }
+
+  result &= Nvm.speedAdjustDelayS <= 600;
+  if (!result) {
+    Nvm.speedAdjustDelayS = NvmInit.speedAdjustDelayS;
+  }
+
+  result &= Nvm.speedAdjustRate <= 20;
+  result &= Nvm.speedAdjustRate >= 1;
+  if (!result) {
+    Nvm.speedAdjustRate = NvmInit.speedAdjustRate;
   }
 }
 
@@ -471,12 +578,12 @@ int cmdSetMinDutyCycle (int argc, char **argv)
   if (argc != 2) {
     return 1;
   }
-  uint8_t dutyCycle = atoi(argv[1]);
+  uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.minRpmDutyCycle = dutyCycle;
   nvmWrite();
-  S.lastPwmDutyCycle = Nvm.minRpmDutyCycle;
-  S.pwmDutyCycle     = Nvm.minRpmDutyCycle;
-  S.state            = STATE_ON_ENTRY;
+  S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+  S.pwmDutyCycle      = Nvm.minRpmDutyCycle;
+  S.state             = STATE_ON_ENTRY;
   Cli.xprintf("PWM duty cycle at min. RPM= %d\r\n\r\n", Nvm.minRpmDutyCycle);
   return 0;
 }
@@ -490,26 +597,47 @@ int cmdSetMaxDutyCycle (int argc, char **argv)
   if (argc != 2) {
     return 1;
   }
-  uint8_t dutyCycle = atoi(argv[1]);
+  uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.maxRpmDutyCycle = dutyCycle;
   nvmWrite();
-  S.lastPwmDutyCycle = Nvm.maxRpmDutyCycle;
-  S.pwmDutyCycle     = Nvm.maxRpmDutyCycle;
-  S.state            = STATE_ON_ENTRY;
+  S.savedPwmDutyCycle = Nvm.maxRpmDutyCycle;
+  S.pwmDutyCycle      = Nvm.maxRpmDutyCycle;
+  S.state             = STATE_ON_ENTRY;
   Cli.xprintf("PWM duty cycle at max. RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
   return 0;
 }
 
 
+
 /*
- * Display the system configuration
+ * Set the speed adjust parameters
+ */
+int cmdSetSpeedAdjustParam (int argc, char **argv)
+{
+  if (argc != 3) {
+    return 1;
+  }
+  uint32_t threshold = atol(argv[1]);
+  uint8_t  rate      = atoi(argv[2]);
+  Nvm.speedAdjustDelayS = threshold;
+  Nvm.speedAdjustRate = rate;
+  nvmWrite();
+  Cli.xprintf("Speed adjust delay = %ld s\r\n", Nvm.speedAdjustDelayS);
+  Cli.xprintf("Speed adjust rate  = %d 1/s\r\n\r\n", Nvm.speedAdjustRate);
+  return 0;
+}
+
+
+
+/*
+ * Display the system status
  */
 int cmdStatus (int argc, char **argv)
 {
   Serial.println (F("System status:"));
   Cli.xprintf    (  "  State           = %d\r\n", S.state);
   Cli.xprintf    (  "  Input status    = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  Last PWM duty   = %d\r\n", S.lastPwmDutyCycle);
+  Cli.xprintf    (  "  Last PWM duty   = %d\r\n", S.savedPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM duty = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;
@@ -525,6 +653,8 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Min. off duration   = %ld s\r\n", Nvm.minOffDurationS);
   Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
   Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
+  Cli.xprintf    (  "  Speed adjust delay  = %d s\r\n" , Nvm.speedAdjustDelayS);
+  Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n" , Nvm.speedAdjustRate);
   Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   return 0;
 }
@@ -538,3 +668,24 @@ int cmdTrace (int argc, char **argv)
   Trace.dump();
   return 0;
 }
+
+
+/*
+ * Reset EEPROM to default values
+ */
+int cmdReset (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint32_t confirm = atol(argv[1]);
+
+  if (1024 == confirm) {
+    Serial.println (F("Reset\r\n"));
+    Nvm.magicWord = 0;
+    nvmWrite();
+  }
+  return 0;
+}
+
+
