@@ -58,7 +58,7 @@
  */
 #define SERIAL_BAUD               57600      // Serial communication baud rate
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
-#define TRACE_BUF_SIZE_BYTES      100        // Trace buffer size in byts
+#define TRACE_BUF_SIZE            100        // Trace buffer size in words
 #define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
 #define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in ms
 
@@ -93,8 +93,8 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint32_t minOnDurationS  = 20;       // Minimum allowed compressor on duration in seconds
-  uint32_t minOffDurationS = 10;       // Minimum allowed compressor off duration in seconds
+  uint32_t minOnDurationS  = 240;      // Minimum allowed compressor on duration in seconds
+  uint32_t minOffDurationS = 60;       // Minimum allowed compressor off duration in seconds
   uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM
   uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM
 } Nvm;
@@ -130,7 +130,8 @@ static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
 void readInputPin (void);
 void setOutputPin (void);
 void ledManager   (void);
-bool nvmValidate  (void);
+void speedManager (void);
+void nvmValidate  (void);
 void nvmRead      (void);
 void nvmWrite     (void);
 int cmdOn     (int argc, char **argv);
@@ -163,7 +164,7 @@ void setup (void)
   digitalWrite(OUTPUT_PIN, LOW);
 
   Led.initialize(LED_PIN);
-  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE_BYTES, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT);
+  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT);
   Cli.init(SERIAL_BAUD);
 
   Serial.println (F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
@@ -209,6 +210,7 @@ void loop (void)
   readInputPin();
   setOutputPin();
   ledManager();
+  speedManager();
 
   // Main state machine
   switch (S.state) {
@@ -331,49 +333,57 @@ void ledManager (void)
 
 
 /*
+ * Speed adjustment algorithm
+ */
+void speedManager (void)
+{
+
+}
+
+
+/*
  * Validate EEPROM data
  */
-bool nvmValidate (void)
+void nvmValidate (void)
 {
-  bool final_result = true;
-  bool result_init  = true;
+  Nvm_t NvmInit;
+  bool result  = true;
 
   if (Nvm.magicWord != NVM_MAGIC_WORD) {
-    Nvm.magicWord = NVM_MAGIC_WORD;
-    result_init = false;
+    Nvm = NvmInit;
+    eepromWrite (0x0, (uint8_t*)&Nvm, sizeof (Nvm));
+    return;
   }
 
-  bool result = result_init;
-
-  result &= Nvm.minRpmDutyCycle >= 127;
-  final_result &= result;
+  result &= Nvm.minRpmDutyCycle >= 10;
   if (!result) {
-    Nvm.minRpmDutyCycle = 255;
-    result = result_init;
+    Nvm.minRpmDutyCycle = NvmInit.minRpmDutyCycle;
+    result = true;
   }
 
   result &= Nvm.maxRpmDutyCycle <= Nvm.minRpmDutyCycle - 10;
   result &= Nvm.maxRpmDutyCycle > 0;
-  final_result &= result;
   if (!result) {
-    Nvm.maxRpmDutyCycle = Nvm.minRpmDutyCycle - 10;
-    result = result_init;
+    if (NvmInit.maxRpmDutyCycle < Nvm.minRpmDutyCycle - 10) {
+      Nvm.maxRpmDutyCycle = NvmInit.maxRpmDutyCycle;
+    }
+    else {
+      Nvm.maxRpmDutyCycle = Nvm.minRpmDutyCycle - 10;
+    }
+    result = true;
   }
 
   result &= Nvm.minOnDurationS <= 600;
-  final_result &= result;
   if (!result) {
-    Nvm.minOnDurationS = 240;
-    result = result_init;
+    Nvm.minOnDurationS = NvmInit.minOnDurationS;
+    result = true;
   }
 
   result &= Nvm.minOffDurationS <= 600;
-  final_result &= result;
   if (!result) {
-    Nvm.minOffDurationS = 60;
-    result = result_init;
+    Nvm.minOffDurationS = NvmInit.minOffDurationS;
+    result = true;
   }
-  return final_result;
 }
 
 
@@ -403,7 +413,7 @@ void nvmWrite (void)
 int cmdOn (int argc, char **argv)
 {
   S.state = STATE_ON_ENTRY;
-  Serial.println(F("Compressor on"));
+  Serial.println(F("Compressor on\r\n"));
   return 0;
 }
 
@@ -414,7 +424,7 @@ int cmdOn (int argc, char **argv)
 int cmdOff (int argc, char **argv)
 {
   S.state = STATE_OFF_ENTRY;
-  Serial.println(F("Compressor off"));
+  Serial.println(F("Compressor off\r\n"));
   return 0;
 }
 
@@ -431,7 +441,7 @@ int cmdSetMinOnDuration (int argc, char **argv)
   uint32_t duration = atol(argv[1]);
   Nvm.minOnDurationS = duration;
   nvmWrite();
-  Cli.xprintf("Min. on duration = %ld s\r\n", Nvm.minOnDurationS);
+  Cli.xprintf("Min. on duration = %ld s\r\n\r\n", Nvm.minOnDurationS);
   return 0;
 }
 
@@ -447,7 +457,7 @@ int cmdSetMinOffDuration (int argc, char **argv)
   uint32_t duration = atol(argv[1]);
   Nvm.minOffDurationS = duration;
   nvmWrite();
-  Cli.xprintf("Min. off duration = %ld s\r\n", Nvm.minOffDurationS);
+  Cli.xprintf("Min. off duration = %ld s\r\n\r\n", Nvm.minOffDurationS);
   return 0;
 }
 
@@ -464,10 +474,10 @@ int cmdSetMinDutyCycle (int argc, char **argv)
   uint8_t dutyCycle = atoi(argv[1]);
   Nvm.minRpmDutyCycle = dutyCycle;
   nvmWrite();
-  S.lastPwmDutyCycle = dutyCycle;
-  S.pwmDutyCycle     = dutyCycle;
+  S.lastPwmDutyCycle = Nvm.minRpmDutyCycle;
+  S.pwmDutyCycle     = Nvm.minRpmDutyCycle;
   S.state            = STATE_ON_ENTRY;
-  Cli.xprintf("PWM duty cycle = %d\r\n", Nvm.minRpmDutyCycle);
+  Cli.xprintf("PWM duty cycle at min. RPM= %d\r\n\r\n", Nvm.minRpmDutyCycle);
   return 0;
 }
 
@@ -483,10 +493,10 @@ int cmdSetMaxDutyCycle (int argc, char **argv)
   uint8_t dutyCycle = atoi(argv[1]);
   Nvm.maxRpmDutyCycle = dutyCycle;
   nvmWrite();
-  S.lastPwmDutyCycle = dutyCycle;
-  S.pwmDutyCycle     = dutyCycle;
+  S.lastPwmDutyCycle = Nvm.maxRpmDutyCycle;
+  S.pwmDutyCycle     = Nvm.maxRpmDutyCycle;
   S.state            = STATE_ON_ENTRY;
-  Cli.xprintf("PWM duty cycle = %d\r\n", Nvm.maxRpmDutyCycle);
+  Cli.xprintf("PWM duty cycle at max. RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
   return 0;
 }
 
