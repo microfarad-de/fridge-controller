@@ -1,7 +1,8 @@
 # Fridge Controller
-Secop BD35F fridge compressor speed controller
 
-compressor unit, I needed to implement a control unit to address the following issues:
+Secop BD35F fridge compressor speed controller integration with Dometic RML10 series absorption refirgerator.
+
+After retrofitting my Dometic RML10 absorption RV refrigerator with a Secop BD35F 12V compressor unit, I needed to implement a control unit to address the following issues:
 
 * The compressor unit utilizes the RML10's built-in thermostat and is activated by setting the fridge to 12V mode. It operates using the output originally intended for the 12V heating unit it replaced. However, since the thermostat was designed for an absorption unit, it has a very narrow hysteresis, causing the compressor to cycle on and off too frequently.
 
@@ -11,12 +12,13 @@ The controller in this project is positioned between the RML10 output, which con
 
 Moreover, the controller dynamically adjusts the PWM signal that regulates the compressor's RPM. It continuously monitors the compressor's on and off durations. If the on duration surpasses a specific threshold, the controller gradually increases the compressor speed. Conversely, if the off duration exceeds a certain threshold, the controller gradually reduces the compressor speed.
 
+## Circuit Diagram
 
 <p align="center">
-<img src="https://raw.githubusercontent.com/microfarad-de/tcs-intercom/master/doc/tcs-intercom-schematic.png" alt="drawing"/>
+<img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/fridge-controller-schematic.png" alt="drawing"/>
 </p>
 
-[tcs-intercom-schematic.pdf](https://raw.githubusercontent.com/microfarad-de/tcs-intercom/master/doc/tcs-intercom-schematic.pdf)
+[fridge-controller-schematic.pdf](https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/fridge-controller-schematic.pdf)
 
 
 
