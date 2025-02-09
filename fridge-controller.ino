@@ -42,40 +42,97 @@
 #include "src/Cli/Cli.h"
 #include "src/Led/Led.h"
 #include "src/Nvm/Nvm.h"
+#include "src/Trace/Trace.h"
 #include <avr/wdt.h>
 
 /*
  * Pin assignment
  */
 #define INPUT_PIN   12
-#define OUTPUT_PIN  6
+#define OUTPUT_PIN  11
 #define LED_PIN     LED_BUILTIN  // 13
 
 
 /*
  * Configuration parameters
  */
-#define SERIAL_BAUD  57600   // Serial communication baud rate
+#define SERIAL_BAUD               57600     // Serial communication baud rate
+#define TRACE_BUF_SIZE_BYTES      100       // Trace buffer size in byts
+#define TRACE_STAMP_RESOLUTION_MS 60000     // Trace time stamp resolution in milliseconds
+#define INPUT_DEBOUNCE_DELAY_MS   1000      // Input debounce time delay in ms
 
 
-// Configuration parameters stored in EEPROM (Nvm)
+/*
+ * State machine state definitions
+ */
+typedef enum  {
+  STATE_OFF_ENTRY = 0,
+  STATE_OFF_WAIT  = 1,
+  STATE_OFF       = 2,
+  STATE_ON_ENTRY  = 3,
+  STATE_ON_WAIT   = 4,
+  STATE_ON        = 5
+} State_e;
+
+
+/*
+ * State variables
+ */
+struct State_t {
+  State_e state = STATE_OFF_ENTRY;    // Main state machine state
+  bool    inputEnabled     = false;   // Input pin state after debounce
+  uint8_t pwmDutyCycle     = 0;       // Current PWM duty cycle at the output pin
+  uint8_t lastPwmDutyCycle = 0;       // Previous PWM duty cycle
+} S;
+
+
+
+/*
+ * Configuration parameters
+ */
 struct Nvm_t {
-
+  uint32_t minOnDurationS     = 20;   // Minimum allowed compressor on duration in seconds
+  uint32_t minOffDurationS    = 10;       // Minimum allowed compressor off duration in seconds
+  uint8_t  initalPwmDutyCycle = 255;      // PWM duty cycle for on initial power on
 } Nvm;
 
 
-// LED instance
-LedClass Led;
+/*
+ * Class instances
+ */
+LedClass   Led;
+TraceClass Trace;
 
 
+/*
+ * Trace message lookup table
+ */
+const char *traceMsgList[] = {
+  "Compressor on",
+  "Compressor off"
+};
+enum {
+  TRC_COMPRESSOR_ON,
+  TRC_COMPRESSOR_OFF,
+  TRC_COUNT
+};
+static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
 
 
 
 /*
  * Function declarations
  */
+void readInputPin (void);
+void setOutputPin (void);
+void ledManager   (void);
 int cmdOn  (int argc, char **argv);
 int cmdOff (int argc, char **argv);
+int cmdSet (int argc, char **argv);
+int cmdStatus (int argc, char **argv);
+int cmdConfig (int argc, char **argv);
+int cmdTrace  (int argc, char **argv);
+
 
 
 
@@ -83,24 +140,35 @@ int cmdOff (int argc, char **argv);
 /*
  * Arduino initialization routine
  */
-void setup(void)
+void setup (void)
 {
+  // Set PWM frequency on pin 3 and 11 are controlled by Timer/Counter 2
+  // See ATmega328P datasheet Section 21.11.2, Table 22-10
+  TCCR2B = (TCCR2B & B11111000) | B00000010;
+
   pinMode(INPUT_PIN, INPUT_PULLUP);
   pinMode(OUTPUT_PIN, OUTPUT);
 
   digitalWrite(OUTPUT_PIN, LOW);
 
   Led.initialize(LED_PIN);
+  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE_BYTES, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT);
   Cli.init(SERIAL_BAUD);
 
   Serial.println (F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
   Cli.xprintf    ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
-  Cli.newCmd     ("on",  "Turn on the compressor",  cmdOn);
-  Cli.newCmd     ("off", "Turn off the compressor", cmdOff);
+  Cli.newCmd     ("on",      "Turn on the compressor",             cmdOn);
+  Cli.newCmd     ("off",     "Turn off the compressor",            cmdOff);
+  Cli.newCmd     ("set",     "Set PWM duty cycle (arg: <0..255>)", cmdSet);
+  Cli.newCmd     ("status",  "Show the system status",             cmdStatus);
+  Cli.newCmd     (".",       "Show the system status",             cmdStatus);
+  Cli.newCmd     ("config",  "Show the system configuration",      cmdConfig);
+  Cli.newCmd     ("r",       "Show the system configuration",      cmdConfig);
+  Cli.newCmd     ("trace",   "Print the trace log",                cmdTrace);
+  Cli.newCmd     ("t",       "Print the trace log",                cmdTrace);
   Cli.showHelp();
 
-
-  Led.blink(-1, 100, 900);
+  S.lastPwmDutyCycle = Nvm.initalPwmDutyCycle;
 
   // Enable the watchdog
   wdt_enable (WDTO_1S);
@@ -111,30 +179,148 @@ void setup(void)
 /*
  * Arduino main loop
  */
-void loop(void)
+void loop (void)
 {
+  static bool     initialStartup  = true;
+  static uint32_t compressorOnTs  = 0;
+  static uint32_t compressorOffTs = 0;
+  uint32_t ts = millis();
 
   Cli.getCmd();
-
   Led.loopHandler();
+  Trace.loopHandler();
+  wdt_reset();
+  readInputPin();
+  setOutputPin();
+  ledManager();
 
+  // Main state machine
+  switch (S.state) {
 
-  wdt_reset ();
+    // Compressor OFF state entry point
+    case STATE_OFF_ENTRY:
+      compressorOffTs = ts;
+      S.pwmDutyCycle = 0;
 
+      if (initialStartup) {
+        S.state = STATE_OFF;
+        initialStartup = false;
+      }
+      else {
+        S.state = STATE_OFF_WAIT;
+      }
+      break;
 
+    // Wait for minimum OFF duration
+    case STATE_OFF_WAIT:
+      if (ts - compressorOffTs > Nvm.minOffDurationS * 1000) {
+        S.state = STATE_OFF;
+      }
+      break;
+
+    // Compressor OFF main state
+    case STATE_OFF:
+      if (true == S.inputEnabled) {
+        S.state = STATE_ON_ENTRY;
+        Trace.log(TRC_COMPRESSOR_ON);
+      }
+      break;
+
+    // Compressor ON state entry point
+    case STATE_ON_ENTRY:
+      compressorOnTs = ts;
+      S.pwmDutyCycle = S.lastPwmDutyCycle;
+      S.state = STATE_ON_WAIT;
+      break;
+
+    // Wait for minimum ON duration
+    case STATE_ON_WAIT:
+      if (ts - compressorOnTs > Nvm.minOnDurationS * 1000) {
+        S.state = STATE_ON;
+      }
+      break;
+
+    // Compressor ON main state
+    case STATE_ON:
+      if (false == S.inputEnabled) {
+        S.state = STATE_OFF_ENTRY;
+        Trace.log(TRC_COMPRESSOR_OFF);
+      }
+      break;
+
+    default:
+      break;
+  }
 
 }
 
 
 
+/*
+ * Read and debounce the input pin
+ * *Input pin is active low*
+ */
+void readInputPin (void)
+{
+  static uint32_t inputTs = 0;
+  uint32_t ts = millis();
+
+  if (S.inputEnabled) {
+    if (digitalRead(INPUT_PIN) == LOW) inputTs = ts;
+    if (ts - inputTs > INPUT_DEBOUNCE_DELAY_MS) {
+      S.inputEnabled = false;
+    }
+  }
+  else {
+    if (digitalRead(INPUT_PIN) == HIGH) inputTs = ts;
+    if (ts - inputTs > INPUT_DEBOUNCE_DELAY_MS) {
+      S.inputEnabled = true;
+    }
+  }
+}
+
+
+/*
+ * Apply the PWM duty cycle to the output pin
+ */
+void setOutputPin (void)
+{
+  static uint8_t lastPwmDutyCycle = 0;
+
+  if (S.pwmDutyCycle != lastPwmDutyCycle) {
+    analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
+    lastPwmDutyCycle = S.pwmDutyCycle;
+  }
+}
+
+
+/*
+ * Manage the LED blinking state
+ */
+void ledManager (void)
+{
+  if (!S.inputEnabled && 0 == S.pwmDutyCycle) {
+    Led.blink(-1, 100, 2900);
+  }
+  else if (S.inputEnabled && 0 == S.pwmDutyCycle) {
+    Led.blink(-1, 100, 900);
+  }
+  else if (S.inputEnabled && S.pwmDutyCycle > 0) {
+    Led.turnOn();
+  }
+  else if (!S.inputEnabled && S.pwmDutyCycle > 0) {
+    Led.blink(-1, 900, 100);
+  }
+}
+
 
 /*
  * Activate the output pin
  */
-int cmdOn (int argc, char **argv) {
-  digitalWrite(OUTPUT_PIN, HIGH);
-  Led.turnOn();
-  Serial.println("Compressor on");
+int cmdOn (int argc, char **argv)
+{
+  S.state = STATE_ON_ENTRY;
+  Serial.println(F("Compressor on"));
   return 0;
 }
 
@@ -142,9 +328,68 @@ int cmdOn (int argc, char **argv) {
 /*
  * Deactivate the output pin
  */
-int cmdOff (int argc, char **argv) {
-  digitalWrite(OUTPUT_PIN, LOW);
-  Led.blink(-1, 100, 900);
-  Serial.println("Compressor off");
+int cmdOff (int argc, char **argv)
+{
+  S.state = STATE_OFF_ENTRY;
+  Serial.println(F("Compressor off"));
+  return 0;
+}
+
+
+
+/*
+ * Set the PWM duty cycle of the output pin
+ */
+int cmdSet (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t dutyCycle = atol (argv[1]);
+  if (dutyCycle > 0) {
+    S.lastPwmDutyCycle = dutyCycle;
+    S.state = STATE_ON_ENTRY;
+  }
+  else {
+    S.state = STATE_OFF_ENTRY;
+  }
+
+  Cli.xprintf("PWM duty cycle = %d\r\n", dutyCycle);
+  return 0;
+}
+
+
+/*
+ * Display the system configuration
+ */
+int cmdStatus (int argc, char **argv)
+{
+  Serial.println (F("System status:"));
+  Cli.xprintf    (  "  State          = %d\r\n", S.state);
+  Cli.xprintf    (  "  Input status   = %d\r\n", S.inputEnabled);
+  Cli.xprintf    (  "  PWM duty cycle = %d\r\n", S.pwmDutyCycle);
+  Serial.println (  "");
+  return 0;
+}
+
+/*
+ * Display the system configuration
+ */
+int cmdConfig (int argc, char **argv)
+{
+  Serial.println (F("System configuration:"));
+  Cli.xprintf    (  "  Min. on duration  = %ld s\r\n", Nvm.minOnDurationS);
+  Cli.xprintf    (  "  Min. off duration = %ld s\r\n", Nvm.minOffDurationS);
+  Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
+  return 0;
+}
+
+/*
+ * Dump the trace log
+ */
+int cmdTrace (int argc, char **argv)
+{
+  Serial.println (F("Trace messages:"));
+  Trace.dump();
   return 0;
 }

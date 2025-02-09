@@ -32,6 +32,10 @@
         "thread": "cpp",
         "stop_token": "cpp",
         "istream": "cpp",
-        "*.tcc": "cpp"
+        "*.tcc": "cpp",
+        "print": "cpp",
+        "ostream": "cpp",
+        "sstream": "cpp",
+        "ios": "cpp"
     }
 }
