@@ -45,12 +45,15 @@
 #include "src/Trace/Trace.h"
 #include <avr/wdt.h>
 
+
+
 /*
  * Pin assignment
  */
 #define INPUT_PIN   12
 #define OUTPUT_PIN  11
 #define LED_PIN     LED_BUILTIN  // 13
+
 
 
 /*
@@ -60,11 +63,13 @@
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
 #define TRACE_BUF_SIZE            200        // Trace buffer size in words
 #define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
-#define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in ms
+#define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in milliseconds
+#define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive compressor speed adjustments
+
 
 
 /*
- * State machine state definitions
+ * Main state machine state definitions
  */
 typedef enum  {
   STATE_OFF_ENTRY = 0,
@@ -74,6 +79,7 @@ typedef enum  {
   STATE_ON_WAIT   = 4,
   STATE_ON        = 5
 } State_e;
+
 
 
 /*
@@ -98,7 +104,7 @@ struct Nvm_t {
   uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM, larger value decreases RPM
   uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM, smaller value increases RPM
   uint8_t  padding0[2];                // Memory alignment padding
-  uint32_t speedAdjustDelayS = 120;    // Wait this omount of time in seconds after minOnDurationS
+  uint32_t speedAdjustDelayS = 120;    // Wait this amount of time in seconds after minOnDurationS
                                        // or minOffDurationS elapses before adjusting compressor speed
   uint8_t  speedAdjustRate = 10;       // Increase or decreas PWM by this amount of steps per minute
   uint8_t  padding1[11];               // Memory alignment padding
@@ -111,6 +117,7 @@ struct Nvm_t {
  */
 LedClass   Led;
 TraceClass Trace;
+
 
 
 /*
@@ -160,8 +167,6 @@ int cmdReset (int argc, char **argv);
 
 
 
-
-
 /*
  * Arduino initialization routine
  */
@@ -180,22 +185,22 @@ void setup (void)
   Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT);
   Cli.init(SERIAL_BAUD);
 
-  Serial.println (F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
-  Cli.xprintf    ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
-  Cli.newCmd     ("on",      "Turn on the compressor",             cmdOn);
-  Cli.newCmd     ("off",     "Turn off the compressor",            cmdOff);
-  Cli.newCmd     ("status",  "Show the system status",             cmdStatus);
-  Cli.newCmd     (".",       "Show the system status",             cmdStatus);
-  Cli.newCmd     ("config",  "Show the system configuration",      cmdConfig);
-  Cli.newCmd     ("r",       "Show the system configuration",      cmdConfig);
-  Cli.newCmd     ("trace",   "Print the trace log",                cmdTrace);
-  Cli.newCmd     ("t",       "Print the trace log",                cmdTrace);
-  Cli.newCmd     ("ond",     "Set min. on duration (arg: <0..600> seconds)",  cmdSetMinOnDuration);
-  Cli.newCmd     ("offd",    "Set min. off duration (arg: <0..600> seconds)", cmdSetMinOffDuration);
-  Cli.newCmd     ("pwml",    "Set the PWM duty for min. RPM (arg: <127..255>)", cmdSetMinDutyCycle);
-  Cli.newCmd     ("pwmh",    "Set the PWM duty for max. RPM (arg: <0..254>)",   cmdSetMaxDutyCycle);
-  Cli.newCmd     ("speed",   "Set speed adjust delay & rate (args: <0..600> <1..20>)", cmdSetSpeedAdjustParam);
-  Cli.newCmd     ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
+  Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
+  Cli.xprintf   ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
+  Cli.newCmd    ("on",      "Turn on the compressor",        cmdOn);
+  Cli.newCmd    ("off",     "Turn off the compressor",       cmdOff);
+  Cli.newCmd    ("status",  "Show the system status",        cmdStatus);
+  Cli.newCmd    (".",       "",                              cmdStatus);
+  Cli.newCmd    ("config",  "Show the system configuration", cmdConfig);
+  Cli.newCmd    ("r",       "",                              cmdConfig);
+  Cli.newCmd    ("trace",   "Print the trace log",           cmdTrace);
+  Cli.newCmd    ("t",       "",                              cmdTrace);
+  Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600> s)",  cmdSetMinOnDuration);
+  Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600> s)", cmdSetMinOffDuration);
+  Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <10..255>)", cmdSetMinDutyCycle);
+  Cli.newCmd    ("pwmh",    "Set the PWM duty for max. RPM (arg: <0..254>)",  cmdSetMaxDutyCycle);
+  Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600> s, <1..20>)", cmdSetSpeedAdjustParam);
+  Cli.newCmd    ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
   Cli.showHelp();
 
   nvmRead();
@@ -203,7 +208,7 @@ void setup (void)
 
   S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
 
-  // Enable the watchdog
+  // Enable the watchdog timer
   wdt_enable (WDTO_1S);
 }
 
@@ -285,7 +290,6 @@ void loop (void)
     default:
       break;
   }
-
 }
 
 
@@ -314,6 +318,7 @@ void readInputPin (void)
 }
 
 
+
 /*
  * Apply the PWM duty cycle to the output pin
  */
@@ -326,6 +331,7 @@ void setOutputPin (void)
     lastPwmDutyCycle = S.pwmDutyCycle;
   }
 }
+
 
 
 /*
@@ -348,6 +354,7 @@ void ledManager (void)
     Led.blink(-1, 900, 100);
   }
 }
+
 
 
 /*
@@ -374,7 +381,7 @@ void speedManager (void)
 
     case ON:
       if (ts - startTs > Nvm.speedAdjustDelayS * 1000) {
-        adjustTs   = ts;
+        adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = INCREASE;
       }
       if (S.state != STATE_ON) {
@@ -383,7 +390,7 @@ void speedManager (void)
       break;
 
     case INCREASE:
-      if (ts - adjustTs > 60000) {
+      if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (S.savedPwmDutyCycle - Nvm.speedAdjustRate > Nvm.maxRpmDutyCycle) {
           S.savedPwmDutyCycle -= Nvm.speedAdjustRate;
           S.pwmDutyCycle       = S.savedPwmDutyCycle;
@@ -402,7 +409,7 @@ void speedManager (void)
 
     case OFF:
       if (ts - startTs > Nvm.speedAdjustDelayS * 1000) {
-        adjustTs   = ts;
+        adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = DECREASE;
       }
       if (S.state != STATE_OFF) {
@@ -411,7 +418,7 @@ void speedManager (void)
       break;
 
     case DECREASE:
-      if (ts - adjustTs > 60000) {
+      if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (S.savedPwmDutyCycle + Nvm.speedAdjustRate < Nvm.minRpmDutyCycle) {
           S.savedPwmDutyCycle += Nvm.speedAdjustRate;
           Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
@@ -430,11 +437,8 @@ void speedManager (void)
     default:
       break;
   }
-
-
-
-
 }
+
 
 
 /*
@@ -494,14 +498,16 @@ void nvmValidate (void)
 }
 
 
+
 /*
  * Read EEPROM data
  */
 void nvmRead (void)
 {
-  eepromRead (0x0, (uint8_t*)&Nvm,    sizeof (Nvm_t));
-  nvmValidate ();
+  eepromRead(0x0, (uint8_t*)&Nvm, sizeof (Nvm_t));
+  nvmValidate();
 }
+
 
 
 /*
@@ -509,9 +515,10 @@ void nvmRead (void)
  */
 void nvmWrite (void)
 {
-  nvmValidate ();
-  eepromWrite (0x0, (uint8_t*)&Nvm, sizeof (Nvm));
+  nvmValidate();
+  eepromWrite(0x0, (uint8_t*)&Nvm, sizeof (Nvm));
 }
+
 
 
 /*
@@ -523,6 +530,7 @@ int cmdOn (int argc, char **argv)
   Serial.println(F("Compressor on\r\n"));
   return 0;
 }
+
 
 
 /*
@@ -551,6 +559,7 @@ int cmdSetMinOnDuration (int argc, char **argv)
   Cli.xprintf("Min. on duration = %ld s\r\n\r\n", Nvm.minOnDurationS);
   return 0;
 }
+
 
 
 /*
@@ -589,6 +598,7 @@ int cmdSetMinDutyCycle (int argc, char **argv)
 }
 
 
+
 /*
  * Set the PWM duty cycle corresponding to minimum RPM
  */
@@ -617,9 +627,9 @@ int cmdSetSpeedAdjustParam (int argc, char **argv)
   if (argc != 3) {
     return 1;
   }
-  uint32_t threshold = atol(argv[1]);
-  uint8_t  rate      = atoi(argv[2]);
-  Nvm.speedAdjustDelayS = threshold;
+  uint32_t delay = atol(argv[1]);
+  uint8_t  rate  = atoi(argv[2]);
+  Nvm.speedAdjustDelayS = delay;
   Nvm.speedAdjustRate = rate;
   nvmWrite();
   Cli.xprintf("Speed adjust delay = %ld s\r\n", Nvm.speedAdjustDelayS);
@@ -643,6 +653,8 @@ int cmdStatus (int argc, char **argv)
   return 0;
 }
 
+
+
 /*
  * Display the system configuration
  */
@@ -654,10 +666,12 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
   Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
   Cli.xprintf    (  "  Speed adjust delay  = %d s\r\n" , Nvm.speedAdjustDelayS);
-  Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n" , Nvm.speedAdjustRate);
+  Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   return 0;
 }
+
+
 
 /*
  * Dump the trace log
@@ -668,6 +682,7 @@ int cmdTrace (int argc, char **argv)
   Trace.dump();
   return 0;
 }
+
 
 
 /*
