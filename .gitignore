@@ -4,5 +4,5 @@
 build-*
 private
 *-full*
-tcs-intercom*
+fridge-controller*
 .cache
