@@ -56,10 +56,11 @@
 /*
  * Configuration parameters
  */
-#define SERIAL_BAUD               57600     // Serial communication baud rate
-#define TRACE_BUF_SIZE_BYTES      100       // Trace buffer size in byts
-#define TRACE_STAMP_RESOLUTION_MS 60000     // Trace time stamp resolution in milliseconds
-#define INPUT_DEBOUNCE_DELAY_MS   1000      // Input debounce time delay in ms
+#define SERIAL_BAUD               57600      // Serial communication baud rate
+#define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
+#define TRACE_BUF_SIZE_BYTES      100        // Trace buffer size in byts
+#define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
+#define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in ms
 
 
 /*
@@ -79,10 +80,10 @@ typedef enum  {
  * State variables
  */
 struct State_t {
-  State_e state = STATE_OFF_ENTRY;    // Main state machine state
-  bool    inputEnabled     = false;   // Input pin state after debounce
-  uint8_t pwmDutyCycle     = 0;       // Current PWM duty cycle at the output pin
-  uint8_t lastPwmDutyCycle = 0;       // Previous PWM duty cycle
+  State_e state = STATE_OFF_ENTRY;   // Main state machine state
+  bool    inputEnabled     = false;  // Input pin state after debounce
+  uint8_t pwmDutyCycle     = 0;      // Current PWM duty cycle at the output pin
+  uint8_t lastPwmDutyCycle = 0;      // Previous PWM duty cycle
 } S;
 
 
@@ -91,10 +92,13 @@ struct State_t {
  * Configuration parameters
  */
 struct Nvm_t {
-  uint32_t minOnDurationS     = 20;   // Minimum allowed compressor on duration in seconds
-  uint32_t minOffDurationS    = 10;       // Minimum allowed compressor off duration in seconds
-  uint8_t  initalPwmDutyCycle = 255;      // PWM duty cycle for on initial power on
+  uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
+  uint32_t minOnDurationS  = 20;       // Minimum allowed compressor on duration in seconds
+  uint32_t minOffDurationS = 10;       // Minimum allowed compressor off duration in seconds
+  uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM
+  uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM
 } Nvm;
+
 
 
 /*
@@ -126,12 +130,19 @@ static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
 void readInputPin (void);
 void setOutputPin (void);
 void ledManager   (void);
-int cmdOn  (int argc, char **argv);
-int cmdOff (int argc, char **argv);
-int cmdSet (int argc, char **argv);
+bool nvmValidate  (void);
+void nvmRead      (void);
+void nvmWrite     (void);
+int cmdOn     (int argc, char **argv);
+int cmdOff    (int argc, char **argv);
 int cmdStatus (int argc, char **argv);
 int cmdConfig (int argc, char **argv);
 int cmdTrace  (int argc, char **argv);
+int cmdSetMinOnDuration  (int argc, char **argv);
+int cmdSetMinOffDuration (int argc, char **argv);
+int cmdSetMinDutyCycle   (int argc, char **argv);
+int cmdSetMaxDutyCycle   (int argc, char **argv);
+
 
 
 
@@ -159,16 +170,21 @@ void setup (void)
   Cli.xprintf    ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   Cli.newCmd     ("on",      "Turn on the compressor",             cmdOn);
   Cli.newCmd     ("off",     "Turn off the compressor",            cmdOff);
-  Cli.newCmd     ("set",     "Set PWM duty cycle (arg: <0..255>)", cmdSet);
   Cli.newCmd     ("status",  "Show the system status",             cmdStatus);
   Cli.newCmd     (".",       "Show the system status",             cmdStatus);
   Cli.newCmd     ("config",  "Show the system configuration",      cmdConfig);
   Cli.newCmd     ("r",       "Show the system configuration",      cmdConfig);
   Cli.newCmd     ("trace",   "Print the trace log",                cmdTrace);
   Cli.newCmd     ("t",       "Print the trace log",                cmdTrace);
+  Cli.newCmd     ("ond",     "Set min. on duration (arg: <0..10> seconds)",  cmdSetMinOnDuration);
+  Cli.newCmd     ("offd",    "Set min. off duration (arg: <0..10> seconds)", cmdSetMinOffDuration);
+  Cli.newCmd     ("pwml",    "Set the PWM duty for min. RPM (arg: <127..255>)", cmdSetMinDutyCycle);
+  Cli.newCmd     ("pwmh",    "Set the PWM duty for max. RPM (arg: <0..254>)",   cmdSetMaxDutyCycle);
   Cli.showHelp();
 
-  S.lastPwmDutyCycle = Nvm.initalPwmDutyCycle;
+  nvmRead();
+
+  S.lastPwmDutyCycle = Nvm.minRpmDutyCycle;
 
   // Enable the watchdog
   wdt_enable (WDTO_1S);
@@ -315,6 +331,73 @@ void ledManager (void)
 
 
 /*
+ * Validate EEPROM data
+ */
+bool nvmValidate (void)
+{
+  bool final_result = true;
+  bool result_init  = true;
+
+  if (Nvm.magicWord != NVM_MAGIC_WORD) {
+    Nvm.magicWord = NVM_MAGIC_WORD;
+    result_init = false;
+  }
+
+  bool result = result_init;
+
+  result &= Nvm.minRpmDutyCycle >= 127;
+  final_result &= result;
+  if (!result) {
+    Nvm.minRpmDutyCycle = 255;
+    result = result_init;
+  }
+
+  result &= Nvm.maxRpmDutyCycle <= Nvm.minRpmDutyCycle - 10;
+  result &= Nvm.maxRpmDutyCycle > 0;
+  final_result &= result;
+  if (!result) {
+    Nvm.maxRpmDutyCycle = Nvm.minRpmDutyCycle - 10;
+    result = result_init;
+  }
+
+  result &= Nvm.minOnDurationS <= 600;
+  final_result &= result;
+  if (!result) {
+    Nvm.minOnDurationS = 240;
+    result = result_init;
+  }
+
+  result &= Nvm.minOffDurationS <= 600;
+  final_result &= result;
+  if (!result) {
+    Nvm.minOffDurationS = 60;
+    result = result_init;
+  }
+  return final_result;
+}
+
+
+/*
+ * Read EEPROM data
+ */
+void nvmRead (void)
+{
+  eepromRead (0x0, (uint8_t*)&Nvm,    sizeof (Nvm_t));
+  nvmValidate ();
+}
+
+
+/*
+ * Write EEPROM data
+ */
+void nvmWrite (void)
+{
+  nvmValidate ();
+  eepromWrite (0x0, (uint8_t*)&Nvm, sizeof (Nvm));
+}
+
+
+/*
  * Activate the output pin
  */
 int cmdOn (int argc, char **argv)
@@ -338,23 +421,72 @@ int cmdOff (int argc, char **argv)
 
 
 /*
- * Set the PWM duty cycle of the output pin
+ * Set the minimum allowed compressor on duration
  */
-int cmdSet (int argc, char **argv)
+int cmdSetMinOnDuration (int argc, char **argv)
 {
   if (argc != 2) {
     return 1;
   }
-  uint8_t dutyCycle = atol (argv[1]);
-  if (dutyCycle > 0) {
-    S.lastPwmDutyCycle = dutyCycle;
-    S.state = STATE_ON_ENTRY;
-  }
-  else {
-    S.state = STATE_OFF_ENTRY;
-  }
+  uint32_t duration = atol(argv[1]);
+  Nvm.minOnDurationS = duration;
+  nvmWrite();
+  Cli.xprintf("Min. on duration = %ld s\r\n", Nvm.minOnDurationS);
+  return 0;
+}
 
-  Cli.xprintf("PWM duty cycle = %d\r\n", dutyCycle);
+
+/*
+ * Set the minimum allowed compressor off duration
+ */
+int cmdSetMinOffDuration (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint32_t duration = atol(argv[1]);
+  Nvm.minOffDurationS = duration;
+  nvmWrite();
+  Cli.xprintf("Min. off duration = %ld s\r\n", Nvm.minOffDurationS);
+  return 0;
+}
+
+
+
+/*
+ * Set the PWM duty cycle corresponding to minimum RPM
+ */
+int cmdSetMinDutyCycle (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t dutyCycle = atoi(argv[1]);
+  Nvm.minRpmDutyCycle = dutyCycle;
+  nvmWrite();
+  S.lastPwmDutyCycle = dutyCycle;
+  S.pwmDutyCycle     = dutyCycle;
+  S.state            = STATE_ON_ENTRY;
+  Cli.xprintf("PWM duty cycle = %d\r\n", Nvm.minRpmDutyCycle);
+  return 0;
+}
+
+
+/*
+ * Set the PWM duty cycle corresponding to minimum RPM
+ */
+int cmdSetMaxDutyCycle (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t dutyCycle = atoi(argv[1]);
+  Nvm.maxRpmDutyCycle = dutyCycle;
+  nvmWrite();
+  S.lastPwmDutyCycle = dutyCycle;
+  S.pwmDutyCycle     = dutyCycle;
+  S.state            = STATE_ON_ENTRY;
+  Cli.xprintf("PWM duty cycle = %d\r\n", Nvm.maxRpmDutyCycle);
   return 0;
 }
 
@@ -365,9 +497,10 @@ int cmdSet (int argc, char **argv)
 int cmdStatus (int argc, char **argv)
 {
   Serial.println (F("System status:"));
-  Cli.xprintf    (  "  State          = %d\r\n", S.state);
-  Cli.xprintf    (  "  Input status   = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  PWM duty cycle = %d\r\n", S.pwmDutyCycle);
+  Cli.xprintf    (  "  State           = %d\r\n", S.state);
+  Cli.xprintf    (  "  Input status    = %d\r\n", S.inputEnabled);
+  Cli.xprintf    (  "  Last PWM duty   = %d\r\n", S.lastPwmDutyCycle);
+  Cli.xprintf    (  "  Output PWM duty = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;
 }
@@ -378,8 +511,10 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Cli.xprintf    (  "  Min. on duration  = %ld s\r\n", Nvm.minOnDurationS);
-  Cli.xprintf    (  "  Min. off duration = %ld s\r\n", Nvm.minOffDurationS);
+  Cli.xprintf    (  "  Min. on duration    = %ld s\r\n", Nvm.minOnDurationS);
+  Cli.xprintf    (  "  Min. off duration   = %ld s\r\n", Nvm.minOffDurationS);
+  Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
+  Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
   Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   return 0;
 }
