@@ -37,5 +37,8 @@
         "ostream": "cpp",
         "sstream": "cpp",
         "ios": "cpp"
-    }
+    },
+    "clangd.enable": false,
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.default.intelliSenseMode": ""
 }
