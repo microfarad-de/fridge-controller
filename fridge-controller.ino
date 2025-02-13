@@ -59,7 +59,7 @@
 /*
  * Configuration parameters
  */
-#define SERIAL_BAUD               57600      // Serial communication baud rate
+#define SERIAL_BAUD               9600       // Serial communication baud rate
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
 #define TRACE_BUF_SIZE            200        // Trace buffer size in words
 #define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
@@ -103,7 +103,8 @@ struct Nvm_t {
   uint32_t minOffDurationS = 60;       // Minimum allowed compressor off duration in seconds
   uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM, larger value decreases RPM
   uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM, smaller value increases RPM
-  uint8_t  padding0[2];                // Memory alignment padding
+  uint8_t  traceEnable     = 1;        // Enable the trace logging
+  uint8_t  padding0[1];                // Memory alignment padding
   uint32_t speedAdjustDelayS = 120;    // Wait this amount of time in seconds after minOnDurationS
                                        // or minOffDurationS elapses before adjusting compressor speed
   uint8_t  speedAdjustRate = 10;       // Increase or decreas PWM by this amount of steps per minute
@@ -172,7 +173,7 @@ int cmdReset (int argc, char **argv);
  */
 void setup (void)
 {
-  // Set PWM frequency on pin 3 and 11 are controlled by Timer/Counter 2
+  // Set PWM frequency on pins 3 and 11 which are controlled by Timer/Counter 2
   // See ATmega328P datasheet Section 21.11.2, Table 22-10
   TCCR2B = (TCCR2B & B11111000) | B00000010;
 
@@ -190,26 +191,29 @@ void setup (void)
   Cli.newCmd    ("on",      "Turn on the compressor",        cmdOn);
   Cli.newCmd    ("off",     "Turn off the compressor",       cmdOff);
   Cli.newCmd    ("status",  "Show the system status",        cmdStatus);
-  Cli.newCmd    (".",       "",                              cmdStatus);
+  Cli.newCmd    ("s",       "",                              cmdStatus);
   Cli.newCmd    ("config",  "Show the system configuration", cmdConfig);
   Cli.newCmd    ("r",       "",                              cmdConfig);
-  Cli.newCmd    ("trace",   "Print the trace log",           cmdTrace);
+  Cli.newCmd    ("trace",   "Print the trace log or enable/disable tracing (arg: [0,1])", cmdTrace);
   Cli.newCmd    ("t",       "",                              cmdTrace);
   Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600> s)",  cmdSetMinOnDuration);
   Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600> s)", cmdSetMinOffDuration);
   Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <10..255>)", cmdSetMinDutyCycle);
   Cli.newCmd    ("pwmh",    "Set the PWM duty for max. RPM (arg: <0..254>)",  cmdSetMaxDutyCycle);
-  Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600> s, <1..20>)", cmdSetSpeedAdjustParam);
+  Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600> s, <0..255>)", cmdSetSpeedAdjustParam);
   Cli.newCmd    ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
   Cli.showHelp();
 
   nvmRead();
   Trace.log(TRC_POWER_ON);
 
+  if (Nvm.traceEnable) Trace.start();
+  else                 Trace.stop();
+
   S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
 
   // Enable the watchdog timer
-  wdt_enable (WDTO_1S);
+  wdt_enable (WDTO_8S);
 }
 
 
@@ -365,6 +369,9 @@ void speedManager (void)
   static enum {WAIT, ON, INCREASE, OFF, DECREASE} localState = WAIT;
   static uint32_t startTs  = 0;
   static uint32_t adjustTs = 0;
+
+  if (Nvm.speedAdjustRate == 0) return;
+
   uint32_t ts  = millis();
 
   switch (localState) {
@@ -490,8 +497,8 @@ void nvmValidate (void)
     Nvm.speedAdjustDelayS = NvmInit.speedAdjustDelayS;
   }
 
-  result &= Nvm.speedAdjustRate <= 20;
-  result &= Nvm.speedAdjustRate >= 1;
+  result &= Nvm.speedAdjustRate <= 255;
+  result &= Nvm.speedAdjustRate >= 0;
   if (!result) {
     Nvm.speedAdjustRate = NvmInit.speedAdjustRate;
   }
@@ -667,6 +674,7 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
   Cli.xprintf    (  "  Speed adjust delay  = %d s\r\n" , Nvm.speedAdjustDelayS);
   Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n", Nvm.speedAdjustRate);
+  Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
   Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   return 0;
 }
@@ -678,8 +686,25 @@ int cmdConfig (int argc, char **argv)
  */
 int cmdTrace (int argc, char **argv)
 {
-  Serial.println (F("Trace messages:"));
-  Trace.dump();
+  if (argc == 2) {
+    uint8_t enable = atoi(argv[1]);
+    if (1 == enable) {
+      Nvm.traceEnable = true;
+      Trace.start();
+      nvmWrite();
+      Serial.println (F("Trace enabled\r\n"));
+    }
+    else if (0 == enable) {
+      Nvm.traceEnable = false;
+      Trace.stop();
+      nvmWrite();
+      Serial.println (F("Trace disabled\r\n"));
+    }
+  }
+  else {
+    Serial.println (F("Trace messages:"));
+    Trace.dump();
+  }
   return 0;
 }
 
