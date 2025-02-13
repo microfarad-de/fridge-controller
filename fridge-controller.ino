@@ -44,6 +44,7 @@
 #include "src/Nvm/Nvm.h"
 #include "src/Trace/Trace.h"
 #include <avr/wdt.h>
+#include <avr/sleep.h>
 
 
 
@@ -146,6 +147,7 @@ static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
 /*
  * Function declarations
  */
+void powerSave (void);
 void readInputPin (void);
 void setOutputPin (void);
 void ledManager   (void);
@@ -236,6 +238,7 @@ void loop (void)
   setOutputPin();
   ledManager();
   speedManager();
+  powerSave();
 
   // Main state machine
   switch (S.state) {
@@ -294,6 +297,22 @@ void loop (void)
     default:
       break;
   }
+}
+
+
+
+/*
+ * Power saving routine
+ * Enables CPU sleep mode
+ */
+void powerSave (void)
+{
+  set_sleep_mode (SLEEP_MODE_IDLE);
+  cli ();
+  sleep_enable ();  // Enter sleep, wakeup will be triggered by the next analog compare interrupt
+  sei ();
+  sleep_cpu ();
+  sleep_disable ();
 }
 
 
@@ -462,7 +481,7 @@ void nvmValidate (void)
     return;
   }
 
-  result &= Nvm.minRpmDutyCycle >= 10;
+  result &= Nvm.minRpmDutyCycle > 0;
   if (!result) {
     Nvm.minRpmDutyCycle = NvmInit.minRpmDutyCycle;
     result = true;
@@ -600,7 +619,7 @@ int cmdSetMinDutyCycle (int argc, char **argv)
   S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
   S.pwmDutyCycle      = Nvm.minRpmDutyCycle;
   S.state             = STATE_ON_ENTRY;
-  Cli.xprintf("PWM duty cycle at min. RPM= %d\r\n\r\n", Nvm.minRpmDutyCycle);
+  Cli.xprintf("PWM duty cycle at min. RPM = %d\r\n\r\n", Nvm.minRpmDutyCycle);
   return 0;
 }
 
