@@ -97,13 +97,19 @@ struct State_t {
 
 /*
  * Configuration parameters
+ *
+ * Measured PWM values for Secop BD35F:
+ *   Min. RPM: 190
+ *   Max. RPM: 50
+ *
+ * PWM setting range: 0..255
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
   uint32_t minOnDurationS  = 240;      // Minimum allowed compressor on duration in seconds
   uint32_t minOffDurationS = 60;       // Minimum allowed compressor off duration in seconds
-  uint8_t  minRpmDutyCycle = 255;      // PWM duty cycle for minimum compressor RPM, larger value decreases RPM
-  uint8_t  maxRpmDutyCycle = 100;      // PWM duty cycle for maximum compressor RPM, smaller value increases RPM
+  uint8_t  minRpmDutyCycle = 180;      // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
+  uint8_t  maxRpmDutyCycle = 50;       // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable     = 1;        // Enable the trace logging
   uint8_t  padding0[1];                // Memory alignment padding
   uint32_t speedAdjustDelayS = 120;    // Wait this amount of time in seconds after minOnDurationS
