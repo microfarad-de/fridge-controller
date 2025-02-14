@@ -473,7 +473,7 @@ void speedManager (void)
 void nvmValidate (void)
 {
   Nvm_t NvmInit;
-  bool result  = true;
+  bool result;
 
   if (Nvm.magicWord != NVM_MAGIC_WORD) {
     Nvm = NvmInit;
@@ -481,13 +481,12 @@ void nvmValidate (void)
     return;
   }
 
-  result &= Nvm.minRpmDutyCycle > 0;
+  result = Nvm.minRpmDutyCycle > 0;
   if (!result) {
     Nvm.minRpmDutyCycle = NvmInit.minRpmDutyCycle;
-    result = true;
   }
 
-  result &= Nvm.maxRpmDutyCycle <= Nvm.minRpmDutyCycle;
+  result  = Nvm.maxRpmDutyCycle <= Nvm.minRpmDutyCycle;
   result &= Nvm.maxRpmDutyCycle > 0;
   if (!result) {
     if (NvmInit.maxRpmDutyCycle < Nvm.minRpmDutyCycle) {
@@ -496,27 +495,24 @@ void nvmValidate (void)
     else {
       Nvm.maxRpmDutyCycle = Nvm.minRpmDutyCycle;
     }
-    result = true;
   }
 
-  result &= Nvm.minOnDurationS <= 600;
+  result = Nvm.minOnDurationS <= 600;
   if (!result) {
     Nvm.minOnDurationS = NvmInit.minOnDurationS;
-    result = true;
   }
 
-  result &= Nvm.minOffDurationS <= 600;
+  result = Nvm.minOffDurationS <= 600;
   if (!result) {
     Nvm.minOffDurationS = NvmInit.minOffDurationS;
-    result = true;
   }
 
-  result &= Nvm.speedAdjustDelayS <= 600;
+  result = Nvm.speedAdjustDelayS <= 600;
   if (!result) {
     Nvm.speedAdjustDelayS = NvmInit.speedAdjustDelayS;
   }
 
-  result &= Nvm.speedAdjustRate <= 255;
+  result  = Nvm.speedAdjustRate <= 255;
   result &= Nvm.speedAdjustRate >= 0;
   if (!result) {
     Nvm.speedAdjustRate = NvmInit.speedAdjustRate;
@@ -530,7 +526,7 @@ void nvmValidate (void)
  */
 void nvmRead (void)
 {
-  eepromRead(0x0, (uint8_t*)&Nvm, sizeof (Nvm_t));
+  eepromRead(0x0, (uint8_t*)&Nvm, sizeof (Nvm));
   nvmValidate();
 }
 
@@ -691,7 +687,7 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Min. off duration   = %ld s\r\n", Nvm.minOffDurationS);
   Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
   Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
-  Cli.xprintf    (  "  Speed adjust delay  = %d s\r\n" , Nvm.speedAdjustDelayS);
+  Cli.xprintf    (  "  Speed adjust delay  = %ld s\r\n" , Nvm.speedAdjustDelayS);
   Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
   Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
@@ -719,6 +715,9 @@ int cmdTrace (int argc, char **argv)
       nvmWrite();
       Serial.println (F("Trace disabled\r\n"));
     }
+    else {
+      return 1;
+    }
   }
   else {
     Serial.println (F("Trace messages:"));
@@ -743,6 +742,9 @@ int cmdReset (int argc, char **argv)
     Serial.println (F("Reset\r\n"));
     Nvm.magicWord = 0;
     nvmWrite();
+  }
+  else {
+    return 1;
   }
   return 0;
 }
