@@ -309,7 +309,7 @@ void powerSave (void)
 {
   set_sleep_mode (SLEEP_MODE_IDLE);
   cli ();
-  sleep_enable ();  // Enter sleep, wakeup will be triggered by the next analog compare interrupt
+  sleep_enable ();  // Enter sleep, wakeup will be triggered by the next Timer 0 interrupt
   sei ();
   sleep_cpu ();
   sleep_disable ();
