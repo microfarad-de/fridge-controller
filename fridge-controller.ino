@@ -136,7 +136,8 @@ const char *traceMsgList[] = {
   "Compressor off",
   "Power on",
   "Increase speed %d",
-  "Decrease speed %d"
+  "Decrease speed %d",
+  "Set speed %d"
 };
 enum {
   TRC_COMPRESSOR_ON,
@@ -144,6 +145,7 @@ enum {
   TRC_POWER_ON,
   TRC_INCREASE_SPEED,
   TRC_DECREASE_SPEED,
+  TRC_SET_SPEED,
   TRC_COUNT
 };
 static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
@@ -161,8 +163,7 @@ void speedManager (void);
 void nvmValidate  (void);
 void nvmRead      (void);
 void nvmWrite     (void);
-int cmdOn     (int argc, char **argv);
-int cmdOff    (int argc, char **argv);
+int cmdSet    (int argc, char **argv);
 int cmdStatus (int argc, char **argv);
 int cmdConfig (int argc, char **argv);
 int cmdTrace  (int argc, char **argv);
@@ -196,8 +197,7 @@ void setup (void)
 
   Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
   Cli.xprintf   ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
-  Cli.newCmd    ("on",      "Turn on the compressor",        cmdOn);
-  Cli.newCmd    ("off",     "Turn off the compressor",       cmdOff);
+  Cli.newCmd    ("set",     "Set the compressor speed (arg: <0..255)", cmdSet);
   Cli.newCmd    ("status",  "Show the system status",        cmdStatus);
   Cli.newCmd    ("s",       "",                              cmdStatus);
   Cli.newCmd    ("config",  "Show the system configuration", cmdConfig);
@@ -550,24 +550,31 @@ void nvmWrite (void)
 
 
 /*
- * Activate the output pin
+ * Set the compressor speed
  */
-int cmdOn (int argc, char **argv)
+int cmdSet (int argc, char **argv)
 {
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t pwm = atoi(argv[1]);
+  if (pwm == 0) {
+    S.state = STATE_OFF_ENTRY;
+    Trace.log(TRC_SET_SPEED, pwm);
+    Serial.println(F("Compressor off\r\n"));
+    return 0;
+  }
+  else if (pwm < Nvm.maxRpmDutyCycle) {
+    pwm = Nvm.maxRpmDutyCycle;
+  }
+  else if (pwm > Nvm.minRpmDutyCycle) {
+    pwm = Nvm.minRpmDutyCycle;
+  }
+  S.savedPwmDutyCycle = pwm;
+  S.pwmDutyCycle      = pwm;
   S.state = STATE_ON_ENTRY;
-  Serial.println(F("Compressor on\r\n"));
-  return 0;
-}
-
-
-
-/*
- * Deactivate the output pin
- */
-int cmdOff (int argc, char **argv)
-{
-  S.state = STATE_OFF_ENTRY;
-  Serial.println(F("Compressor off\r\n"));
+  Trace.log(TRC_SET_SPEED, S.pwmDutyCycle);
+  Cli.xprintf("Output PWM duty cycle = %d\r\n\r\n", S.pwmDutyCycle);
   return 0;
 }
 
