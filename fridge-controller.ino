@@ -675,7 +675,7 @@ int cmdStatus (int argc, char **argv)
   Serial.println (F("System status:"));
   Cli.xprintf    (  "  State           = %d\r\n", S.state);
   Cli.xprintf    (  "  Input status    = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  Last PWM duty   = %d\r\n", S.savedPwmDutyCycle);
+  Cli.xprintf    (  "  Saved PWM duty  = %d\r\n", S.savedPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM duty = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;
