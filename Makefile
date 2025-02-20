@@ -49,6 +49,10 @@ ARDUINO_LIBS = Cli Nvm Led Trace EEPROM
 
 include ${ARDMK_DIR}/Arduino.mk
 
+serial:
+	./tools/serial-console ${DEVICE_PATH} ${MONITOR_BAUDRATE}
+.PHONY: serial
+
 release: clean
 	./release.sh
 .PHONY: release

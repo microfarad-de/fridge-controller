@@ -47,14 +47,12 @@
 #include <avr/sleep.h>
 
 
-
 /*
  * Pin assignment
  */
 #define INPUT_PIN   12
 #define OUTPUT_PIN  11
 #define LED_PIN     LED_BUILTIN  // 13
-
 
 
 /*
@@ -66,7 +64,6 @@
 #define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
 #define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in milliseconds
 #define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive compressor speed adjustments
-
 
 
 /*
@@ -82,7 +79,6 @@ typedef enum  {
 } State_e;
 
 
-
 /*
  * State variables
  */
@@ -94,13 +90,12 @@ struct State_t {
 } S;
 
 
-
 /*
  * Configuration parameters
  *
  * Measured PWM values for Secop BD35F:
- *   Min. RPM: 190
- *   Max. RPM: 50
+ *   Min. RPM: 190 / 255
+ *   Max. RPM: 50 / 255
  *
  * PWM setting range: 0..255
  */
@@ -119,13 +114,11 @@ struct Nvm_t {
 } Nvm;
 
 
-
 /*
  * Class instances
  */
 LedClass   Led;
 TraceClass Trace;
-
 
 
 /*
@@ -151,7 +144,6 @@ enum {
 static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
 
 
-
 /*
  * Function declarations
  */
@@ -173,8 +165,7 @@ int cmdSetMinDutyCycle   (int argc, char **argv);
 int cmdSetMaxDutyCycle   (int argc, char **argv);
 int cmdSetSpeedAdjustParam (int argc, char **argv);
 int cmdReset (int argc, char **argv);
-
-
+void helpText (void);
 
 
 /*
@@ -193,10 +184,9 @@ void setup (void)
 
   Led.initialize(LED_PIN);
   Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT);
-  Cli.init(SERIAL_BAUD);
+  Cli.init(SERIAL_BAUD, false, helpText);
 
   Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
-  Cli.xprintf   ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   Cli.newCmd    ("set",     "Set the compressor speed (arg: <0..255)", cmdSet);
   Cli.newCmd    ("status",  "Show the system status",        cmdStatus);
   Cli.newCmd    ("s",       "",                              cmdStatus);
@@ -223,7 +213,6 @@ void setup (void)
   // Enable the watchdog timer
   wdt_enable (WDTO_8S);
 }
-
 
 
 /*
@@ -306,7 +295,6 @@ void loop (void)
 }
 
 
-
 /*
  * Power saving routine
  * Enables CPU sleep mode
@@ -320,7 +308,6 @@ void powerSave (void)
   sleep_cpu ();
   sleep_disable ();
 }
-
 
 
 /*
@@ -347,7 +334,6 @@ void readInputPin (void)
 }
 
 
-
 /*
  * Apply the PWM duty cycle to the output pin
  */
@@ -362,7 +348,6 @@ void setOutputPin (void)
 }
 
 
-
 /*
  * Manage the LED blinking state
  */
@@ -371,19 +356,18 @@ void ledManager (void)
   bool running = (S.pwmDutyCycle > 0);
 
   if (!S.inputEnabled && !running) {
-    Led.blink(-1, 100, 2900);
+    Led.blink(-1, 200, 2800);
   }
   else if (S.inputEnabled && !running) {
-    Led.blink(-1, 100, 900);
+    Led.blink(-1, 200, 800);
   }
   else if (S.inputEnabled && running) {
     Led.turnOn();
   }
   else if (!S.inputEnabled && running) {
-    Led.blink(-1, 900, 100);
+    Led.blink(-1, 800, 200);
   }
 }
-
 
 
 /*
@@ -472,7 +456,6 @@ void speedManager (void)
 }
 
 
-
 /*
  * Validate EEPROM data
  */
@@ -526,7 +509,6 @@ void nvmValidate (void)
 }
 
 
-
 /*
  * Read EEPROM data
  */
@@ -537,7 +519,6 @@ void nvmRead (void)
 }
 
 
-
 /*
  * Write EEPROM data
  */
@@ -546,7 +527,6 @@ void nvmWrite (void)
   nvmValidate();
   eepromWrite(0x0, (uint8_t*)&Nvm, sizeof (Nvm));
 }
-
 
 
 /*
@@ -579,7 +559,6 @@ int cmdSet (int argc, char **argv)
 }
 
 
-
 /*
  * Set the minimum allowed compressor on duration
  */
@@ -596,7 +575,6 @@ int cmdSetMinOnDuration (int argc, char **argv)
 }
 
 
-
 /*
  * Set the minimum allowed compressor off duration
  */
@@ -611,7 +589,6 @@ int cmdSetMinOffDuration (int argc, char **argv)
   Cli.xprintf("Min. off duration = %ld s\r\n\r\n", Nvm.minOffDurationS);
   return 0;
 }
-
 
 
 /*
@@ -633,7 +610,6 @@ int cmdSetMinDutyCycle (int argc, char **argv)
 }
 
 
-
 /*
  * Set the PWM duty cycle corresponding to minimum RPM
  */
@@ -651,7 +627,6 @@ int cmdSetMaxDutyCycle (int argc, char **argv)
   Cli.xprintf("PWM duty cycle at max. RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
   return 0;
 }
-
 
 
 /*
@@ -673,7 +648,6 @@ int cmdSetSpeedAdjustParam (int argc, char **argv)
 }
 
 
-
 /*
  * Display the system status
  */
@@ -689,7 +663,6 @@ int cmdStatus (int argc, char **argv)
 }
 
 
-
 /*
  * Display the system configuration
  */
@@ -703,10 +676,9 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Speed adjust delay  = %ld s\r\n" , Nvm.speedAdjustDelayS);
   Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
-  Cli.xprintf    (  "\r\n  V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
+  Serial.println (  "");
   return 0;
 }
-
 
 
 /*
@@ -740,7 +712,6 @@ int cmdTrace (int argc, char **argv)
 }
 
 
-
 /*
  * Reset EEPROM to default values
  */
@@ -762,4 +733,16 @@ int cmdReset (int argc, char **argv)
   return 0;
 }
 
+
+/*
+ * Addtional help text
+ */
+void helpText (void)
+{
+  Cli.xprintf   ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
+  Serial.println(F("PWM range for Secop BD35F with 101N0212 controller:"));
+  Serial.println(F("  2000 RPM: 190 / 255 (75 %)"));
+  Serial.println(F("  3500 RPM:  50 / 255 (20 %)"));
+  Serial.println(F("     0 RPM:   0 / 255  (0 %)"));
+}
 

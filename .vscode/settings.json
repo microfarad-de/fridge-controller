@@ -36,7 +36,10 @@
         "print": "cpp",
         "ostream": "cpp",
         "sstream": "cpp",
-        "ios": "cpp"
+        "ios": "cpp",
+        "concepts": "cpp",
+        "numeric": "cpp",
+        "unordered_map": "cpp"
     },
     "clangd.enable": false,
     "C_Cpp.intelliSenseEngine": "default",

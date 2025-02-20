@@ -37,6 +37,7 @@ This project can be compiled from command line using a makefile. Following are t
 * Compile the project: `make`
 * Remove compiled artefacts: `make clean`
 * Upload to Arduino board: `make upload`
+* Connect to the serial console: `make serial`
 * To generate the release archive: `make release`
 
 Prior to uploading the firmware, please ensure that the following parameaters are configured correctly in `Makefile`:

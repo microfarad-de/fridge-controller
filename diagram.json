@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "author": "Uri Shaked",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-arduino-nano", "id": "nano", "top": 100, "left": 0, "attrs": {"frequency": "8m"} },
+    { "type": "wokwi-led", "id": "led-red", "top": 0, "left": 30, "attrs": { "color": "red" } },
+    { "type": "wokwi-dip-switch-8", "id": "sw1", "top": 0, "left": 100, "attrs": {} }
+  ],
+  "connections": [
+    [ "nano:11", "led-red:A", "orange", [ "v-16", "*", "h6" ] ],
+    [ "nano:GND.2", "led-red:C", "black", [ "v-25", "*", "h0" ] ],
+    [ "nano:12", "sw1:1b", "orange", [ "v-110", "h0" ] ],
+    [ "nano:GND.2", "sw1:1a", "black", [ "v-30", "*",  "h0" ] ]
+
+  ]
+}

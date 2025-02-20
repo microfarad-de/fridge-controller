@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = 'build-pro-8MHzatmega328/fridge-controller.hex'
+elf = 'build-pro-8MHzatmega328/fridge-controller.elf'

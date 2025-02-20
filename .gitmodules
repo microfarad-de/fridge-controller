@@ -13,3 +13,6 @@
 [submodule "src/Trace"]
 	path = src/Trace
 	url = ssh://git@github.com/arduino-library/Trace
+[submodule "tools"]
+	path = tools
+	url = git@github.com:microfarad-de/tools.git

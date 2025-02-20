@@ -1,0 +1,6 @@
+{
+    "configuration": "cpu=8MHzatmega328",
+    "board": "arduino:avr:pro",
+    "programmer": "arduino:arduinoasisp",
+    "sketch": "fridge-controller.ino"
+}
