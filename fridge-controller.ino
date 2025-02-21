@@ -174,7 +174,10 @@ void helpText (void);
 void setup (void)
 {
   // Set PWM frequency on pins 3 and 11 which are controlled by Timer/Counter 2
-  // See ATmega328P datasheet Section 21.11.2, Table 22-10
+  // See https://www.etechnophiles.com/how-to-change-the-pwm-frequency-of-arduino-nano/
+  // See ATmega328P datasheet Section 22.11.2, Table 22-10
+  // 31372.55 / 8 = 1960.53 Hz (for 8 mHz Arduino)
+  // Where 31372.55 = 8000000 / 255
   TCCR2B = (TCCR2B & B11111000) | B00000010;
 
   pinMode(INPUT_PIN, INPUT_PULLUP);
@@ -196,8 +199,8 @@ void setup (void)
   Cli.newCmd    ("t",       "",                              cmdTrace);
   Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600> s)",  cmdSetMinOnDuration);
   Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600> s)", cmdSetMinOffDuration);
-  Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <10..255>)", cmdSetMinDutyCycle);
-  Cli.newCmd    ("pwmh",    "Set the PWM duty for max. RPM (arg: <0..254>)",  cmdSetMaxDutyCycle);
+  Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <1..255>)", cmdSetMinDutyCycle);
+  Cli.newCmd    ("pwmh",    "Set the PWM duty for max. RPM (arg: <1..255>)", cmdSetMaxDutyCycle);
   Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600> s, <0..255>)", cmdSetSpeedAdjustParam);
   Cli.newCmd    ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
   Cli.showHelp();
