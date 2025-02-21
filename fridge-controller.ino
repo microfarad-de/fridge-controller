@@ -646,7 +646,7 @@ int cmdSetSpeedAdjustParam (int argc, char **argv)
   Nvm.speedAdjustRate = rate;
   nvmWrite();
   Cli.xprintf("Speed adjust delay = %ld s\r\n", Nvm.speedAdjustDelayS);
-  Cli.xprintf("Speed adjust rate  = %d 1/s\r\n\r\n", Nvm.speedAdjustRate);
+  Cli.xprintf("Speed adjust rate  = %d /min\r\n\r\n", Nvm.speedAdjustRate);
   return 0;
 }
 
@@ -659,7 +659,7 @@ int cmdStatus (int argc, char **argv)
   Serial.println (F("System status:"));
   Cli.xprintf    (  "  State           = %d\r\n", S.state);
   Cli.xprintf    (  "  Input status    = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  Saved PWM duty  = %d\r\n", S.savedPwmDutyCycle);
+  Cli.xprintf    (  "  Last PWM duty   = %d\r\n", S.savedPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM duty = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;
@@ -677,7 +677,7 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
   Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
   Cli.xprintf    (  "  Speed adjust delay  = %ld s\r\n" , Nvm.speedAdjustDelayS);
-  Cli.xprintf    (  "  Speed adjust rate   = %d 1/s\r\n", Nvm.speedAdjustRate);
+  Cli.xprintf    (  "  Speed adjust rate   = %d /min\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
   Serial.println (  "");
   return 0;
