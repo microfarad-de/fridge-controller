@@ -90,6 +90,23 @@ Following are some of the available configuration commands:
 * `pwmh <1..255>`: AnalogWrite() input value for maximum allowed RPM
 * `speed <0..600> <0..255>`: Speed adjust start delay (seconds) and rate (AnalogWrite() steps per minute)
 
+## Gallery
+
+ <p align="center">
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/layout.jpg" alt="drawing" width="600"/>
+ </p>
+
+ <p align="center">
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-1.jpg" alt="drawing" width="600"/>
+ </p>
+
+ <p align="center">
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-2.jpg" alt="drawing" width="600"/>
+ </p>
+
+ <p align="center">
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-3.jpg" alt="drawing" width="600"/>
+ </p>
 
 ## Notes
 
