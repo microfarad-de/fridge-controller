@@ -155,6 +155,8 @@ void speedManager (void);
 void nvmValidate  (void);
 void nvmRead      (void);
 void nvmWrite     (void);
+int cmdOn     (int argc, char **argv);
+int cmdOff    (int argc, char **argv);
 int cmdSet    (int argc, char **argv);
 int cmdStatus (int argc, char **argv);
 int cmdConfig (int argc, char **argv);
@@ -190,6 +192,8 @@ void setup (void)
   Cli.init(SERIAL_BAUD, false, helpText);
 
   Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
+  Cli.newCmd    ("on",      "Turn on the compressor",  cmdOn);
+  Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
   Cli.newCmd    ("set",     "Set the compressor speed (arg: <0..255)", cmdSet);
   Cli.newCmd    ("status",  "Show the system status",        cmdStatus);
   Cli.newCmd    ("s",       "",                              cmdStatus);
@@ -245,6 +249,7 @@ void loop (void)
     case STATE_OFF_ENTRY:
       compressorOffTs = ts;
       S.pwmDutyCycle = 0;
+      Trace.log(TRC_COMPRESSOR_OFF);
 
       if (initialStartup) {
         S.state = STATE_OFF;
@@ -266,7 +271,6 @@ void loop (void)
     case STATE_OFF:
       if (true == S.inputEnabled) {
         S.state = STATE_ON_ENTRY;
-        Trace.log(TRC_COMPRESSOR_ON);
       }
       break;
 
@@ -274,6 +278,7 @@ void loop (void)
     case STATE_ON_ENTRY:
       compressorOnTs = ts;
       S.pwmDutyCycle = S.savedPwmDutyCycle;
+      Trace.log(TRC_COMPRESSOR_ON);
       S.state = STATE_ON_WAIT;
       break;
 
@@ -288,7 +293,6 @@ void loop (void)
     case STATE_ON:
       if (false == S.inputEnabled) {
         S.state = STATE_OFF_ENTRY;
-        Trace.log(TRC_COMPRESSOR_OFF);
       }
       break;
 
@@ -529,6 +533,28 @@ void nvmWrite (void)
 {
   nvmValidate();
   eepromWrite(0x0, (uint8_t*)&Nvm, sizeof (Nvm));
+}
+
+
+/*
+ * Turn on the compressor
+ */
+int cmdOn (int argc, char **argv)
+{
+  S.state = STATE_ON_ENTRY;
+  Serial.println(F("Compressor on\r\n"));
+  return 0;
+}
+
+
+/*
+ * Turn off the compressor
+ */
+int cmdOff (int argc, char **argv)
+{
+  S.state = STATE_OFF_ENTRY;
+  Serial.println(F("Compressor off\r\n"));
+  return 0;
 }
 
 

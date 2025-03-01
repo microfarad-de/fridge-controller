@@ -82,8 +82,15 @@ The AnalogWrite() input value is allowed to be adjusted within a preconfigured r
 
 The the speed controller is configurable over the Arduino's serial interface (9600 Baud). It provides a command line interface and a self explanatory help screen. All configuration parameter's are stored within Arduino's EEPROM.
 
-Following are some of the available configuration commands:
+Following are some of the available commands:
 
+* `h`: Show the help screen
+* `on`: Turn on the compressor
+* `off`: Turn off the compressor
+* `set <0..255>`: Set the compressor RPM
+* `status (s)`: Show the system status
+* `config (r)`: Show the system configuration stored in EEPROM
+* `trace [0,1]`: If argument is set, enable/disable tracing to EEPROM. Otherwise print the trace.
 * `ond <0..600>`: Set the minimum compressor on duration in seconds
 * `offd <0..600>`: Set the minimum compressor off duration in seconds
 * `pwml <1..255>`: AnalogWrite() input value for minimum allowed RPM
