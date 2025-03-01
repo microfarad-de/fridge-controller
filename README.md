@@ -65,7 +65,7 @@ The chosen PWM frequency has proven to work well with the Secop controller model
 | RPM    | Duty Cycle | AnalogWrite (0..255) |
 |-------:|-----------:|---------------------:|
 | 2000   | 75 %       | 190                  |
-| 3500   | 20 %       | 50                   |
+| 3500   | 16 %       | 40                   |
 | 0      | 0 %        | 0                    |
 
 ## Speed Control Algorithm

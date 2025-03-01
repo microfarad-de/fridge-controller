@@ -95,7 +95,7 @@ struct State_t {
  *
  * Measured PWM values for Secop BD35F:
  *   Min. RPM: 190 / 255
- *   Max. RPM: 50 / 255
+ *   Max. RPM: 40 / 255
  *
  * PWM setting range: 0..255
  */
