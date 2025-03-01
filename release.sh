@@ -10,6 +10,7 @@ if [[ "$option" == "clean" ]]; then
   rm -rf "$dir_name"
   rm -rf "$dir_name "*
   rm -rf "build-"*
+  rm -rf ".cache"
 else
   version_major=$(cat "$dir_name.ino" | grep '#define VERSION_MAJOR' | awk -F' ' '{print $3}')
   version_minor=$(cat "$dir_name.ino" | grep '#define VERSION_MINOR' | awk -F' ' '{print $3}')
