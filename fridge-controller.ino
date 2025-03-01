@@ -28,8 +28,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.0.0
- * Date:    February 08, 2025
+ * Version: 1.1.0
+ * Date:    March 01, 2025
  */
 
 
@@ -605,9 +605,6 @@ int cmdSetMinDutyCycle (int argc, char **argv)
   uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.minRpmDutyCycle = dutyCycle;
   nvmWrite();
-  S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
-  S.pwmDutyCycle      = Nvm.minRpmDutyCycle;
-  S.state             = STATE_ON_ENTRY;
   Cli.xprintf("PWM duty cycle at min. RPM = %d\r\n\r\n", Nvm.minRpmDutyCycle);
   return 0;
 }
@@ -624,9 +621,6 @@ int cmdSetMaxDutyCycle (int argc, char **argv)
   uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.maxRpmDutyCycle = dutyCycle;
   nvmWrite();
-  S.savedPwmDutyCycle = Nvm.maxRpmDutyCycle;
-  S.pwmDutyCycle      = Nvm.maxRpmDutyCycle;
-  S.state             = STATE_ON_ENTRY;
   Cli.xprintf("PWM duty cycle at max. RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
   return 0;
 }
@@ -659,7 +653,7 @@ int cmdStatus (int argc, char **argv)
   Serial.println (F("System status:"));
   Cli.xprintf    (  "  State           = %d\r\n", S.state);
   Cli.xprintf    (  "  Input status    = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  Last PWM duty   = %d\r\n", S.savedPwmDutyCycle);
+  Cli.xprintf    (  "  Saved PWM duty  = %d\r\n", S.savedPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM duty = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;
