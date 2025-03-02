@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 2.0.1
+ * Version: 2.1.0
  * Date:    March 02, 2025
  */
 
 
 #define VERSION_MAJOR 2  // Major version
-#define VERSION_MINOR 0  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MINOR 1  // Minor version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -229,7 +229,7 @@ void loop (void)
   static uint32_t compressorOffTs = 0;
   static uint32_t speedStartTs    = 0;
   static uint32_t speedAdjustTs   = 0;
-  static uint8_t nextSpeedAdjDiv  = S.speedAdjustDivider;
+  static uint8_t nextSpeedAdjDiv  = 1;
   uint32_t now = millis();
 
   Cli.getCmd();
@@ -275,8 +275,9 @@ void loop (void)
 
     // Compressor ON state entry point
     case STATE_ON_ENTRY:
-      compressorOnTs = now;
-      S.pwmDutyCycle = Nvm.minRpmDutyCycle;
+      compressorOnTs  = now;
+      S.pwmDutyCycle  = Nvm.minRpmDutyCycle;
+      nextSpeedAdjDiv = 1;
       Trace.log(TRC_COMPRESSOR_ON);
       S.state = STATE_ON_WAIT;
       break;
@@ -317,9 +318,6 @@ void loop (void)
             }
             else if (S.pwmDutyCycle <= ((uint16_t)Nvm.minRpmDutyCycle + (uint16_t)Nvm.maxRpmDutyCycle) / 2) {
               nextSpeedAdjDiv = 2;
-            }
-            else {
-              nextSpeedAdjDiv = 1;
             }
             speedAdjustTs = now;
           }
