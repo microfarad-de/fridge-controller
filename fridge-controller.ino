@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 2.0.0
+ * Version: 2.0.1
  * Date:    March 02, 2025
  */
 
 
 #define VERSION_MAJOR 2  // Major version
 #define VERSION_MINOR 0  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -622,10 +622,10 @@ int cmdSetSpeedAdjustParam (int argc, char **argv)
 int cmdStatus (int argc, char **argv)
 {
   Serial.println (F("System status:"));
-  Cli.xprintf    (  "  State           = %d\r\n", S.state);
-  Cli.xprintf    (  "  Input status    = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  Speed rampup    = %d\r\n", S.speedAdjustDivider);
-  Cli.xprintf    (  "  Output PWM duty = %d\r\n", S.pwmDutyCycle);
+  Cli.xprintf    (  "  State        = %d\r\n", S.state);
+  Cli.xprintf    (  "  Input status = %d\r\n", S.inputEnabled);
+  Cli.xprintf    (  "  Speed rampup = %d\r\n", S.speedAdjustDivider);
+  Cli.xprintf    (  "  Output PWM   = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;
 }
