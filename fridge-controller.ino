@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.1.0
- * Date:    March 01, 2025
+ * Version: 1.1.1
+ * Date:    March 02, 2025
  */
 
 
 #define VERSION_MAJOR 1  // Major version
 #define VERSION_MINOR 1  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -765,7 +765,7 @@ void helpText (void)
   Cli.xprintf   ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
   Serial.println(F("PWM range for Secop BD35F with 101N0212 controller:"));
   Serial.println(F("  2000 RPM: 190 / 255 (75 %)"));
-  Serial.println(F("  3500 RPM:  50 / 255 (20 %)"));
+  Serial.println(F("  3500 RPM:  40 / 255 (16 %)"));
   Serial.println(F("     0 RPM:   0 / 255  (0 %)"));
 }
 
