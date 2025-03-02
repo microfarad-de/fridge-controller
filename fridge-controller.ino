@@ -34,7 +34,7 @@
 
 
 #define VERSION_MAJOR 1  // Major version
-#define VERSION_MINOR 0  // Minor version
+#define VERSION_MINOR 1  // Minor version
 #define VERSION_MAINT 0  // Maintenance version
 
 
