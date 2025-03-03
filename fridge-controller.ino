@@ -13,7 +13,7 @@
  *   http://www.microfarad.de
  *   http://www.github.com/microfarad-de
  *
- * Copyright (C) 2022 Karim Hraibi (khraibi@gmail.com)
+ * Copyright (C) 2025 Karim Hraibi (khraibi@gmail.com)
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
