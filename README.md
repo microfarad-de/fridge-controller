@@ -70,11 +70,13 @@ The chosen PWM frequency has proven to work well with the Secop controller model
 
 ## Speed Control Algorithm
 
-The compressor always starts at minimum RPM. After compressor minimum on duration has elapsed, the speed controller waits for an additional configurable speed adjust delay. Once the delay duration has elapsed, the controller starts ramping up the compressor RPM by decreasing the AnalogWrite() input value by a predetermined number of steps per minute until the maximum RPM has been reached.
+Once the minimum compressor on duration elapses, the speed controller waits for an additional configurable speed adjust delay. Once the delay duration has elapsed, the controller starts ramping up the compressor RPM by decreasing the AnalogWrite() input value by a predetermined number of steps every minute.
 
-The rampup sequence for the next compressor cycle will be accelerated by a factor of 2 if 50% of the maximum RPM has been reached, and by a factor of 4 if the maximum RPM value has been reached. Thus, the speed adjust delay and the AnalogWrite() step increment interval will be reduced accordingly.
+As the RPM increases, the compressor would require less runtime in order to achieve the required cooling capacity. Hence, the speed will stop increasing once its minimum on duration plus the speed adjust delay are no longer being exceeded.
 
-It has been chosen to always start the compressor at its minimum speed and gradually ramp it up. This has been done in order to mitigate refrigerant pressure surges and subsequent rubber seal failure on the quick couplings of Indel Webasto Isotherm split compressor units.
+Conversely, if the compressor off duration exceeds the minimum allowed off duration plus the speed adjust delay, the speed controller starts ramping down the compressor RPM by gradually increasing the AnalogWrite() input value until the off duration gets short enough to prevent any further RPM decrease.
+
+The AnalogWrite() input value is allowed to be adjusted within a preconfigured range corresponding to the minimum and maximum compressor RPMs.
 
 ## Configuration
 
