@@ -88,9 +88,9 @@ Following are some of the available commands:
 * `on`: Turn on the compressor
 * `off`: Turn off the compressor
 * `set <0..255>`: Set the compressor RPM
-* `status (s)`: Show the system status
-* `config (r)`: Show the system configuration stored in EEPROM
-* `trace [0,1]`: If argument is set, enable/disable tracing to EEPROM. Otherwise print the trace.
+* `s`: Show the system status
+* `r`: Show the system configuration stored in EEPROM
+* `t [0,1]`: If argument is set, enable/disable tracing to EEPROM. Otherwise print the trace.
 * `ond <0..600>`: Set the minimum compressor on duration in seconds
 * `offd <0..600>`: Set the minimum compressor off duration in seconds
 * `pwml <1..255>`: AnalogWrite() input value for minimum allowed RPM

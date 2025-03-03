@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 1.2.0
- * Date:    March 02, 2025
+ * Date:    March 03, 2025
  */
 
 
@@ -58,12 +58,22 @@
 /*
  * Configuration parameters
  */
+//#define SERIAL_DEBUG                         // Serial debug printing
 #define SERIAL_BAUD               9600       // Serial communication baud rate
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
 #define TRACE_BUF_SIZE            200        // Trace buffer size in words
 #define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
 #define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in milliseconds
-#define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive compressor speed adjustments
+#define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive speed adjustments
+#define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
+#define SPEED_LOCK_ON_DELAY_S     600        // Time delay in seconds for activating the speed lock
+#define SPEED_LOCK_OFF_DELAY_S    600        // Time delay in seconds for deactivating the speed lock
+
+#ifdef SERIAL_DEBUG
+  #define DEBUG(_X) _X
+#else
+  #define DEBUG(_X)
+#endif
 
 
 /*
@@ -83,10 +93,12 @@ typedef enum  {
  * State variables
  */
 struct State_t {
-  State_e state = STATE_OFF_ENTRY;    // Main state machine state
-  bool    inputEnabled      = false;  // Input pin state after debounce
-  uint8_t pwmDutyCycle      = 0;      // PWM duty cycle at the output pin
-  uint8_t savedPwmDutyCycle = 0;      // Saved PWM duty cycle
+  State_e state = STATE_OFF_ENTRY;     // Main state machine state
+  bool    inputEnabled       = false;  // Input pin state after debounce
+  bool    speedLock          = true;   // Enforce compressor operation at minimum speed
+  uint8_t pwmDutyCycle       = 0;      // PWM duty cycle at the output pin
+  uint8_t savedPwmDutyCycle  = 0;      // Saved PWM duty cycle
+  uint8_t targetPwmDutyCycle = 0;      // Target PWM duty cycle
 } S;
 
 
@@ -101,15 +113,15 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint32_t minOnDurationS  = 240;      // Minimum allowed compressor on duration in seconds
-  uint32_t minOffDurationS = 120;      // Minimum allowed compressor off duration in seconds
-  uint8_t  minRpmDutyCycle = 180;      // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
-  uint8_t  maxRpmDutyCycle = 120;      // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
-  uint8_t  traceEnable     = 1;        // Enable the trace logging
+  uint32_t minOnDurationS    = 240;    // Minimum allowed compressor on duration in seconds
+  uint32_t minOffDurationS   = 60;     // Minimum allowed compressor off duration in seconds
+  uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
+  uint8_t  maxRpmDutyCycle   = 120;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
+  uint8_t  traceEnable       = 1;      // Enable the trace logging
   uint8_t  padding0[1];                // Memory alignment padding
   uint32_t speedAdjustDelayS = 120;    // Wait this amount of time in seconds after minOnDurationS
                                        // or minOffDurationS elapses before adjusting compressor speed
-  uint8_t  speedAdjustRate = 0;        // Increase or decrease PWM by this amount of steps per minute
+  uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  padding1[11];               // Memory alignment padding
 } Nvm;
 
@@ -130,7 +142,8 @@ const char *traceMsgList[] = {
   "Power on",
   "Increase speed %d",
   "Decrease speed %d",
-  "Set speed %d"
+  "Set speed %d",
+  "Speed lock %d",
 };
 enum {
   TRC_COMPRESSOR_ON,
@@ -139,6 +152,7 @@ enum {
   TRC_INCREASE_SPEED,
   TRC_DECREASE_SPEED,
   TRC_SET_SPEED,
+  TRC_SPEED_LOCK,
   TRC_COUNT
 };
 static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
@@ -149,7 +163,7 @@ static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
  */
 void powerSave (void);
 void readInputPin (void);
-void setOutputPin (void);
+void setPwm (void);
 void ledManager   (void);
 void speedManager (void);
 void nvmValidate  (void);
@@ -195,12 +209,9 @@ void setup (void)
   Cli.newCmd    ("on",      "Turn on the compressor",  cmdOn);
   Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
   Cli.newCmd    ("set",     "Set the compressor speed (arg: <0..255)", cmdSet);
-  Cli.newCmd    ("status",  "Show the system status",        cmdStatus);
-  Cli.newCmd    ("s",       "",                              cmdStatus);
-  Cli.newCmd    ("config",  "Show the system configuration", cmdConfig);
-  Cli.newCmd    ("r",       "",                              cmdConfig);
-  Cli.newCmd    ("trace",   "Print the trace log or enable/disable tracing (arg: [0,1])", cmdTrace);
-  Cli.newCmd    ("t",       "",                              cmdTrace);
+  Cli.newCmd    ("s",       "Show the system status",        cmdStatus);
+  Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
+  Cli.newCmd    ("t",       "Print the trace log or enable/disable tracing (arg: [0,1])", cmdTrace);
   Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600> s)",  cmdSetMinOnDuration);
   Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600> s)", cmdSetMinOffDuration);
   Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <1..255>)", cmdSetMinDutyCycle);
@@ -230,6 +241,7 @@ void loop (void)
   static bool     initialStartup  = true;
   static uint32_t compressorOnTs  = 0;
   static uint32_t compressorOffTs = 0;
+  static uint32_t speedLockTs     = 0;
   uint32_t ts = millis();
 
   Cli.getCmd();
@@ -237,7 +249,7 @@ void loop (void)
   Trace.loopHandler();
   wdt_reset();
   readInputPin();
-  setOutputPin();
+  setPwm();
   ledManager();
   speedManager();
   powerSave();
@@ -247,8 +259,9 @@ void loop (void)
 
     // Compressor OFF state entry point
     case STATE_OFF_ENTRY:
-      compressorOffTs = ts;
-      S.pwmDutyCycle = 0;
+      compressorOffTs      = ts;
+      speedLockTs          = ts;
+      S.targetPwmDutyCycle = 0;
       Trace.log(TRC_COMPRESSOR_OFF);
 
       if (initialStartup) {
@@ -272,12 +285,18 @@ void loop (void)
       if (true == S.inputEnabled) {
         S.state = STATE_ON_ENTRY;
       }
+      if (ts - speedLockTs > (uint32_t)SPEED_LOCK_ON_DELAY_S * 1000 && !S.speedLock) {
+        S.speedLock = true;
+        S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+        Trace.log(TRC_SPEED_LOCK, S.speedLock);
+      }
       break;
 
     // Compressor ON state entry point
     case STATE_ON_ENTRY:
       compressorOnTs = ts;
-      S.pwmDutyCycle = S.savedPwmDutyCycle;
+      speedLockTs    = ts;
+      S.targetPwmDutyCycle = S.savedPwmDutyCycle;
       Trace.log(TRC_COMPRESSOR_ON);
       S.state = STATE_ON_WAIT;
       break;
@@ -293,6 +312,10 @@ void loop (void)
     case STATE_ON:
       if (false == S.inputEnabled) {
         S.state = STATE_OFF_ENTRY;
+      }
+      if (ts - speedLockTs > (uint32_t)SPEED_LOCK_OFF_DELAY_S * 1000 && S.speedLock) {
+        S.speedLock = false;
+        Trace.log(TRC_SPEED_LOCK, S.speedLock);
       }
       break;
 
@@ -342,20 +365,6 @@ void readInputPin (void)
 
 
 /*
- * Apply the PWM duty cycle to the output pin
- */
-void setOutputPin (void)
-{
-  static uint8_t lastPwmDutyCycle = 0;
-
-  if (S.pwmDutyCycle != lastPwmDutyCycle) {
-    analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
-    lastPwmDutyCycle = S.pwmDutyCycle;
-  }
-}
-
-
-/*
  * Manage the LED blinking state
  */
 void ledManager (void)
@@ -373,6 +382,98 @@ void ledManager (void)
   }
   else if (!S.inputEnabled && running) {
     Led.blink(-1, 800, 200);
+  }
+}
+
+
+/*
+ * Decrement PWM duty cycle by one adjustment step
+ */
+bool decrementPwm (uint8_t * pwm)
+{
+  if (*pwm - Nvm.speedAdjustRate > Nvm.maxRpmDutyCycle) {
+    *pwm -= Nvm.speedAdjustRate;
+    DEBUG(Serial.println("Decrement PWM"));
+    return true;
+  }
+  else if (*pwm != Nvm.maxRpmDutyCycle) {
+    *pwm = Nvm.maxRpmDutyCycle;
+    DEBUG(Serial.println("Decrement PWM"));
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+
+/*
+ * increment PWM duty cycle by one adjustment step
+ */
+bool incrementPwm (uint8_t *pwm)
+{
+  if (*pwm + Nvm.speedAdjustRate < Nvm.minRpmDutyCycle) {
+    *pwm += Nvm.speedAdjustRate;
+    DEBUG(Serial.println("Increment PWM"));
+    return true;
+  }
+  else if (*pwm != Nvm.minRpmDutyCycle) {
+    *pwm = Nvm.minRpmDutyCycle;
+    DEBUG(Serial.println("Increment PWM"));
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+
+/*
+ * Apply the PWM duty cycle to the output pin
+ * Slowly rampup compressor speed
+ */
+void setPwm (void)
+{
+  static uint8_t  lastPwmDutyCycle = 255 - Nvm.minRpmDutyCycle > Nvm.speedAdjustRate ? Nvm.minRpmDutyCycle + Nvm.speedAdjustRate : 255;
+  static uint32_t adjustTs         = 0;
+  uint32_t ts = millis();
+
+  if (S.targetPwmDutyCycle != S.pwmDutyCycle) {
+    // Speed adjust disabled
+    if (Nvm.speedAdjustRate == 0) {
+      S.pwmDutyCycle = S.targetPwmDutyCycle;
+      analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
+      lastPwmDutyCycle = S.pwmDutyCycle;
+    }
+    // Stop
+    else if (S.targetPwmDutyCycle == 0) {
+      DEBUG(Serial.println("Stop"));
+      S.pwmDutyCycle = 0;
+      analogWrite(OUTPUT_PIN, 0);
+      lastPwmDutyCycle = 255 - Nvm.minRpmDutyCycle > Nvm.speedAdjustRate ? Nvm.minRpmDutyCycle + Nvm.speedAdjustRate : 255;
+    }
+    // Decrease speed
+    else if (S.targetPwmDutyCycle >= lastPwmDutyCycle) {
+      DEBUG(Serial.println("Ramp down"));
+      S.pwmDutyCycle = S.targetPwmDutyCycle;
+      analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
+      lastPwmDutyCycle = S.pwmDutyCycle;
+    }
+    // Increase speed slowly
+    else if (S.targetPwmDutyCycle < lastPwmDutyCycle)
+    {
+      if (ts - adjustTs >= SPEED_RAMPUP_PERIOD_MS) {
+        if (decrementPwm(&lastPwmDutyCycle)) {
+          DEBUG(Serial.println("Ramp up"));
+          S.pwmDutyCycle = lastPwmDutyCycle;
+          analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
+        }
+        adjustTs = ts;
+      }
+    }
+  }
+  else {
+    adjustTs = ts - SPEED_RAMPUP_PERIOD_MS;
   }
 }
 
@@ -403,7 +504,7 @@ void speedManager (void)
       break;
 
     case ON:
-      if (ts - startTs > Nvm.speedAdjustDelayS * 1000) {
+      if ((ts - startTs > Nvm.speedAdjustDelayS * 1000) && !S.speedLock) {
         adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = INCREASE;
       }
@@ -414,15 +515,12 @@ void speedManager (void)
 
     case INCREASE:
       if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
-        if (S.savedPwmDutyCycle - Nvm.speedAdjustRate > Nvm.maxRpmDutyCycle) {
-          S.savedPwmDutyCycle -= Nvm.speedAdjustRate;
-          S.pwmDutyCycle       = S.savedPwmDutyCycle;
+        if (decrementPwm(&S.savedPwmDutyCycle)) {
+          DEBUG(Serial.println("Increase speed"));
+          S.targetPwmDutyCycle = S.savedPwmDutyCycle;
           Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
         }
-        else if (S.savedPwmDutyCycle != Nvm.maxRpmDutyCycle) {
-          S.savedPwmDutyCycle = Nvm.maxRpmDutyCycle;
-          Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
-        }
+
         adjustTs = ts;
       }
       if (S.state != STATE_ON) {
@@ -442,12 +540,9 @@ void speedManager (void)
 
     case DECREASE:
       if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
-        if (S.savedPwmDutyCycle + Nvm.speedAdjustRate < Nvm.minRpmDutyCycle) {
-          S.savedPwmDutyCycle += Nvm.speedAdjustRate;
-          Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
-        }
-        else if (S.savedPwmDutyCycle != Nvm.minRpmDutyCycle) {
-          S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+        if (incrementPwm(&S.savedPwmDutyCycle)) {
+          DEBUG(Serial.println("Decrease speed"));
+          // S.targetPwmDutyCycle = 0
           Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
         }
         adjustTs = ts;
@@ -579,11 +674,10 @@ int cmdSet (int argc, char **argv)
   else if (pwm > Nvm.minRpmDutyCycle) {
     pwm = Nvm.minRpmDutyCycle;
   }
-  S.savedPwmDutyCycle = pwm;
-  S.pwmDutyCycle      = pwm;
+  S.savedPwmDutyCycle  = pwm;
   S.state = STATE_ON_ENTRY;
-  Trace.log(TRC_SET_SPEED, S.pwmDutyCycle);
-  Cli.xprintf("Output PWM duty cycle = %d\r\n\r\n", S.pwmDutyCycle);
+  Trace.log(TRC_SET_SPEED, S.savedPwmDutyCycle);
+  Cli.xprintf("Output PWM duty cycle = %d\r\n\r\n", S.savedPwmDutyCycle);
   return 0;
 }
 
@@ -665,6 +759,9 @@ int cmdSetSpeedAdjustParam (int argc, char **argv)
   Nvm.speedAdjustDelayS = delay;
   Nvm.speedAdjustRate = rate;
   nvmWrite();
+  if (Nvm.speedAdjustRate == 0) {
+    S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+  }
   Cli.xprintf("Speed adjust delay = %ld s\r\n", Nvm.speedAdjustDelayS);
   Cli.xprintf("Speed adjust rate  = %d /min\r\n\r\n", Nvm.speedAdjustRate);
   return 0;
@@ -679,7 +776,9 @@ int cmdStatus (int argc, char **argv)
   Serial.println (F("System status:"));
   Cli.xprintf    (  "  State        = %d\r\n", S.state);
   Cli.xprintf    (  "  Input status = %d\r\n", S.inputEnabled);
+  Cli.xprintf    (  "  Speed lock   = %d\r\n", S.speedLock);
   Cli.xprintf    (  "  Saved PWM    = %d\r\n", S.savedPwmDutyCycle);
+  Cli.xprintf    (  "  Target PWM   = %d\r\n", S.targetPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM   = %d\r\n", S.pwmDutyCycle);
   Serial.println (  "");
   return 0;

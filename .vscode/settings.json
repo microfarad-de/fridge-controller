@@ -39,7 +39,9 @@
         "ios": "cpp",
         "concepts": "cpp",
         "numeric": "cpp",
-        "unordered_map": "cpp"
+        "unordered_map": "cpp",
+        "complex": "cpp",
+        "format": "cpp"
     },
     "clangd.enable": false,
     "C_Cpp.intelliSenseEngine": "default",
