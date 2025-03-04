@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.2.0
- * Date:    March 03, 2025
+ * Version: 1.2.1
+ * Date:    March 04, 2025
  */
 
 
 #define VERSION_MAJOR 1  // Major version
 #define VERSION_MINOR 2  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -70,11 +70,13 @@
 #define SPEED_LOCK_OFF_DELAY_S    600        // Time delay in seconds for deactivating the speed lock
 
 #ifdef SERIAL_DEBUG
-  #define DEBUG(_X) _X
+  #define DEBUG(x) x
 #else
-  #define DEBUG(_X)
+  #define DEBUG(x)
 #endif
 
+#define STRINGIFY(x) #x
+#define QUOTE(x) STRINGIFY(x)
 
 /*
  * Main state machine state definitions
@@ -181,6 +183,7 @@ int cmdSetMinDutyCycle   (int argc, char **argv);
 int cmdSetMaxDutyCycle   (int argc, char **argv);
 int cmdSetSpeedAdjustParam (int argc, char **argv);
 int cmdReset (int argc, char **argv);
+void printVersion (uint8_t indent);
 void helpText (void);
 
 
@@ -206,17 +209,18 @@ void setup (void)
   Cli.init(SERIAL_BAUD, false, helpText);
 
   Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
+  printVersion(0);
   Cli.newCmd    ("on",      "Turn on the compressor",  cmdOn);
   Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
-  Cli.newCmd    ("set",     "Set the compressor speed (arg: <0..255)", cmdSet);
+  Cli.newCmd    ("set",     "Set the compressor speed (arg: <0..255>)", cmdSet);
   Cli.newCmd    ("s",       "Show the system status",        cmdStatus);
   Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
-  Cli.newCmd    ("t",       "Print the trace log or enable/disable tracing (arg: [0,1])", cmdTrace);
-  Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600> s)",  cmdSetMinOnDuration);
-  Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600> s)", cmdSetMinOffDuration);
+  Cli.newCmd    ("t",       "Print the trace log or enable/disable trace (arg: [0,1])", cmdTrace);
+  Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600>s)",  cmdSetMinOnDuration);
+  Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600>s)", cmdSetMinOffDuration);
   Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <1..255>)", cmdSetMinDutyCycle);
   Cli.newCmd    ("pwmh",    "Set the PWM duty for max. RPM (arg: <1..255>)", cmdSetMaxDutyCycle);
-  Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600> s, <0..255>)", cmdSetSpeedAdjustParam);
+  Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600>s, <0..255>)", cmdSetSpeedAdjustParam);
   Cli.newCmd    ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
   Cli.showHelp();
 
@@ -798,6 +802,7 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Speed adjust delay  = %ld s\r\n" , Nvm.speedAdjustDelayS);
   Cli.xprintf    (  "  Speed adjust rate   = %d /min\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
+  printVersion(2);
   Serial.println (  "");
   return 0;
 }
@@ -857,14 +862,27 @@ int cmdReset (int argc, char **argv)
 
 
 /*
+ * Print version info
+ */
+void printVersion (uint8_t indent)
+{
+  for (uint8_t i = 0; i < indent; i++) {
+    Serial.print(" ");
+  }
+  Serial.println(F("V " QUOTE(VERSION_MAJOR) "." QUOTE(VERSION_MINOR) "." QUOTE(VERSION_MAINT)));
+}
+
+
+/*
  * Addtional help text
  */
 void helpText (void)
 {
-  Cli.xprintf   ("V %d.%d.%d\r\n\r\n", VERSION_MAJOR, VERSION_MINOR, VERSION_MAINT);
-  Serial.println(F("PWM range for Secop BD35F with 101N0212 controller:"));
+  Serial.println(F("PWM range for Secop BD35F with 101N0212:"));
   Serial.println(F("  2000 RPM: 190 / 255 (75 %)"));
   Serial.println(F("  3500 RPM:  40 / 255 (16 %)"));
   Serial.println(F("     0 RPM:   0 / 255  (0 %)"));
 }
+
+
 
