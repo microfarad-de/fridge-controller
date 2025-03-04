@@ -140,5 +140,5 @@ Prior to uploading the firmware, please ensure that the following parameaters ar
 * `MONITOR_BAUDRATE`: Serial port Baud rate (possible values: 4800, 9600, 14400, 19200, 28800, 38400, 57600, 115200)
 * `MONITOR_PORT`: Serial port device (e.g.: /dev/tty.usbserial-00000000)
 
-For more information, please refer to [the Arduino-Makefile documentation](arduino-mk/arduino-mk-vars.md).
+For more information, please refer to [the Arduino-Makefile documentation](https://github.com/sudar/Arduino-Makefile).
 
