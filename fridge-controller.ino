@@ -45,6 +45,7 @@
 #include "src/Trace/Trace.h"
 #include <avr/wdt.h>
 #include <avr/sleep.h>
+#include <avr/power.h>
 
 
 /*
@@ -198,6 +199,10 @@ void setup (void)
   // 31372.55 / 8 = 1960.53 Hz (for 8 mHz Arduino)
   // Where 31372.55 = 8000000 / 255
   TCCR2B = (TCCR2B & B11111000) | B00000010;
+
+  // Disable the ADC
+  ADCSRA &= ~_BV(ADEN);
+  power_adc_disable();
 
   pinMode(INPUT_PIN, INPUT_PULLUP);
   pinMode(OUTPUT_PIN, OUTPUT);
