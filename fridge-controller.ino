@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.2.1
- * Date:    March 19, 2025
+ * Version: 1.2.2
+ * Date:    April 24, 2025
  */
 
 
 #define VERSION_MAJOR 1  // Major version
 #define VERSION_MINOR 2  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MAINT 2  // Maintenance version
 
 
 #include <Arduino.h>
@@ -116,7 +116,7 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint32_t minOnDurationS    = 240;    // Minimum allowed compressor on duration in seconds
+  uint32_t minOnDurationS    = 300;    // Minimum allowed compressor on duration in seconds
   uint32_t minOffDurationS   = 60;     // Minimum allowed compressor off duration in seconds
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 120;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
@@ -702,7 +702,7 @@ int cmdSetMinOnDuration (int argc, char **argv)
   uint32_t duration = atol(argv[1]);
   Nvm.minOnDurationS = duration;
   nvmWrite();
-  Cli.xprintf("Min. on duration = %ld s\r\n\r\n", Nvm.minOnDurationS);
+  Cli.xprintf("Min. on duration = %lds\r\n\r\n", Nvm.minOnDurationS);
   return 0;
 }
 
@@ -718,7 +718,7 @@ int cmdSetMinOffDuration (int argc, char **argv)
   uint32_t duration = atol(argv[1]);
   Nvm.minOffDurationS = duration;
   nvmWrite();
-  Cli.xprintf("Min. off duration = %ld s\r\n\r\n", Nvm.minOffDurationS);
+  Cli.xprintf("Min. off duration = %lds\r\n\r\n", Nvm.minOffDurationS);
   return 0;
 }
 
@@ -771,8 +771,8 @@ int cmdSetSpeedAdjustParam (int argc, char **argv)
   if (Nvm.speedAdjustRate == 0) {
     S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
   }
-  Cli.xprintf("Speed adjust delay = %ld s\r\n", Nvm.speedAdjustDelayS);
-  Cli.xprintf("Speed adjust rate  = %d /min\r\n\r\n", Nvm.speedAdjustRate);
+  Cli.xprintf("Speed adjust delay = %lds\r\n", Nvm.speedAdjustDelayS);
+  Cli.xprintf("Speed adjust rate  = %d/min\r\n\r\n", Nvm.speedAdjustRate);
   return 0;
 }
 
@@ -800,12 +800,12 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Cli.xprintf    (  "  Min. on duration    = %ld s\r\n", Nvm.minOnDurationS);
-  Cli.xprintf    (  "  Min. off duration   = %ld s\r\n", Nvm.minOffDurationS);
+  Cli.xprintf    (  "  Min. on duration    = %lds\r\n", Nvm.minOnDurationS);
+  Cli.xprintf    (  "  Min. off duration   = %lds\r\n", Nvm.minOffDurationS);
   Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
   Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
-  Cli.xprintf    (  "  Speed adjust delay  = %ld s\r\n" , Nvm.speedAdjustDelayS);
-  Cli.xprintf    (  "  Speed adjust rate   = %d /min\r\n", Nvm.speedAdjustRate);
+  Cli.xprintf    (  "  Speed adjust delay  = %lds\r\n" , Nvm.speedAdjustDelayS);
+  Cli.xprintf    (  "  Speed adjust rate   = %d/min\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
   printVersion(2);
   Serial.println (  "");
@@ -884,9 +884,9 @@ void printVersion (uint8_t indent)
 void helpText (void)
 {
   Serial.println(F("PWM range for Secop BD35F with 101N0212:"));
-  Serial.println(F("  2000 RPM: 190 / 255 (75 %)"));
-  Serial.println(F("  3500 RPM:  40 / 255 (16 %)"));
-  Serial.println(F("     0 RPM:   0 / 255  (0 %)"));
+  Serial.println(F("  2000 RPM: 190 / 255 (75%)"));
+  Serial.println(F("  3500 RPM:  40 / 255 (16%)"));
+  Serial.println(F("     0 RPM:   0 / 255  (0%)"));
 }
 
 
