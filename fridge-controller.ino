@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.2.2
- * Date:    April 24, 2025
+ * Version: 1.3.0
+ * Date:    May 5, 2025
  */
 
 
 #define VERSION_MAJOR 1  // Major version
-#define VERSION_MINOR 2  // Minor version
-#define VERSION_MAINT 2  // Maintenance version
+#define VERSION_MINOR 3  // Minor version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -43,6 +43,7 @@
 #include "src/Led/Led.h"
 #include "src/Nvm/Nvm.h"
 #include "src/Trace/Trace.h"
+#include "src/MathMf/MathMf.h"
 #include <avr/wdt.h>
 #include <avr/sleep.h>
 #include <avr/power.h>
@@ -97,6 +98,7 @@ typedef enum  {
  */
 struct State_t {
   State_e state = STATE_OFF_ENTRY;     // Main state machine state
+  bool    crcOk              = false;  // CRC check status
   bool    inputEnabled       = false;  // Input pin state after debounce
   bool    speedLock          = true;   // Enforce compressor operation at minimum speed
   uint8_t pwmDutyCycle       = 0;      // PWM duty cycle at the output pin
@@ -126,6 +128,7 @@ struct Nvm_t {
                                        // or minOffDurationS elapses before adjusting compressor speed
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  padding1[11];               // Memory alignment padding
+  uint32_t crc               = 0;      // CRC checksum
 } Nvm;
 
 
@@ -147,6 +150,7 @@ const char *traceMsgList[] = {
   "Decrease speed %d",
   "Set speed %d",
   "Speed lock %d",
+  "CRC FAIL",
 };
 enum {
   TRC_COMPRESSOR_ON,
@@ -156,6 +160,7 @@ enum {
   TRC_DECREASE_SPEED,
   TRC_SET_SPEED,
   TRC_SPEED_LOCK,
+  TRC_CRC_FAIL,
   TRC_COUNT
 };
 static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
@@ -306,8 +311,15 @@ void loop (void)
       compressorOnTs = ts;
       speedLockTs    = ts;
       S.targetPwmDutyCycle = S.savedPwmDutyCycle;
-      Trace.log(TRC_COMPRESSOR_ON);
-      S.state = STATE_ON_WAIT;
+
+      nvmRead ();  // Perform a CRC check
+      if (S.crcOk) {
+        Trace.log(TRC_COMPRESSOR_ON);
+        S.state = STATE_ON_WAIT;
+      }
+      else  {
+        S.state = STATE_OFF_ENTRY;
+      }
       break;
 
     // Wait for minimum ON duration
@@ -322,7 +334,7 @@ void loop (void)
       if (false == S.inputEnabled) {
         S.state = STATE_OFF_ENTRY;
       }
-      if (ts - speedLockTs > (uint32_t)SPEED_LOCK_OFF_DELAY_S * 1000 && S.speedLock) {
+      if (ts - speedLockTs > (uint32_t)SPEED_LOCK_OFF_DELAY_S * 1000 && S.speedLock && S.crcOk) {
         S.speedLock = false;
         Trace.log(TRC_SPEED_LOCK, S.speedLock);
       }
@@ -627,6 +639,19 @@ void nvmRead (void)
 {
   eepromRead(0x0, (uint8_t*)&Nvm, sizeof (Nvm));
   nvmValidate();
+
+  uint32_t crc = crcCalc((uint8_t*)&Nvm, sizeof (Nvm) - sizeof (Nvm.crc));
+  if (crc != Nvm.crc) {
+    S.crcOk = false;
+    Serial.println(F("CRC FAILURE!\r\n"));
+    Trace.log(TRC_CRC_FAIL);
+    // Reset NVM on CRC failure
+    Nvm.magicWord = 0;
+    nvmWrite();
+  }
+  else {
+    S.crcOk = true;
+  }
 }
 
 
@@ -636,6 +661,7 @@ void nvmRead (void)
 void nvmWrite (void)
 {
   nvmValidate();
+  Nvm.crc = crcCalc((uint8_t*)&Nvm, sizeof(Nvm) - sizeof(Nvm.crc));
   eepromWrite(0x0, (uint8_t*)&Nvm, sizeof (Nvm));
 }
 
@@ -807,6 +833,9 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Speed adjust delay  = %lds\r\n" , Nvm.speedAdjustDelayS);
   Cli.xprintf    (  "  Speed adjust rate   = %d/min\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
+  if (S.crcOk) Serial.print(F("  CRC PASS "));
+  else         Serial.print(F("  CRC FAIL "));
+  Cli.xprintf ("(%lx)\r\n", Nvm.crc);
   printVersion(2);
   Serial.println (  "");
   return 0;
