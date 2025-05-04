@@ -70,6 +70,10 @@
 #define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
 #define SPEED_LOCK_ON_DELAY_S     600        // Time delay in seconds for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_S    600        // Time delay in seconds for deactivating the speed lock
+#define DUTY_MEAS_BUF_EXP         7          // Duty cycle measurement buffer size exponent
+#define DUTY_MEAS_BUF_SIZE        (1 << DUTY_MEAS_BUF_EXP) // Duty cycle measurement buffer size
+#define DUTY_MEAS_WINDOW_SIZE_M   120        // Duty cycle measurement window size in minutes
+#define DUTY_MEAS_TIEMOUT_S       1800       // Dyty cycle measurement is reset after this duration in seconds
 
 #ifdef SERIAL_DEBUG
   #define DEBUG(x) x
@@ -104,6 +108,9 @@ struct State_t {
   uint8_t pwmDutyCycle       = 0;      // PWM duty cycle at the output pin
   uint8_t savedPwmDutyCycle  = 0;      // Saved PWM duty cycle
   uint8_t targetPwmDutyCycle = 0;      // Target PWM duty cycle
+  uint8_t dutyMeas[DUTY_MEAS_BUF_SIZE] = { 0 };  // Duty cycle measurement array
+  uint8_t dutyMeasIdx        = 0;      // Duty cycle array index
+  uint8_t dutyValidSamples   = 0;     // Number of valid duty cycle measurement samples
 } S;
 
 
@@ -174,6 +181,7 @@ void readInputPin (void);
 void setPwm (void);
 void ledManager   (void);
 void speedManager (void);
+void dutyCycleLogger (void);
 void nvmValidate  (void);
 void nvmRead      (void);
 void nvmWrite     (void);
@@ -226,10 +234,10 @@ void setup (void)
   Cli.newCmd    ("s",       "Show the system status",        cmdStatus);
   Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
   Cli.newCmd    ("t",       "Print the trace log or enable/disable trace (arg: [0,1])", cmdTrace);
-  Cli.newCmd    ("ond",     "Set min. on duration (arg: <0..600>s)",  cmdSetMinOnDuration);
-  Cli.newCmd    ("offd",    "Set min. off duration (arg: <0..600>s)", cmdSetMinOffDuration);
-  Cli.newCmd    ("pwml",    "Set the PWM duty for min. RPM (arg: <1..255>)", cmdSetMinDutyCycle);
-  Cli.newCmd    ("pwmh",    "Set the PWM duty for max. RPM (arg: <1..255>)", cmdSetMaxDutyCycle);
+  Cli.newCmd    ("ond",     "Set min on duration (arg: <0..600>s)",  cmdSetMinOnDuration);
+  Cli.newCmd    ("offd",    "Set min off duration (arg: <0..600>s)", cmdSetMinOffDuration);
+  Cli.newCmd    ("pwml",    "Set the PWM duty for min RPM (arg: <1..255>)", cmdSetMinDutyCycle);
+  Cli.newCmd    ("pwmh",    "Set the PWM duty for max RPM (arg: <1..255>)", cmdSetMaxDutyCycle);
   Cli.newCmd    ("speed",   "Set speed adjust delay & rate (args: <0..600>s, <0..255>)", cmdSetSpeedAdjustParam);
   Cli.newCmd    ("reset",   "Reset settings to defaults (arg: <1024>)", cmdReset);
   Cli.showHelp();
@@ -266,6 +274,7 @@ void loop (void)
   setPwm();
   ledManager();
   speedManager();
+  dutyCycleLogger();
   powerSave();
 
   // Main state machine
@@ -580,6 +589,67 @@ void speedManager (void)
 
 
 /*
+ * Compressor duty cycle logging routine
+ */
+void dutyCycleLogger (void)
+{
+  static uint32_t captureTs = 0;
+  static uint32_t sampleTs  = 0;
+  static uint32_t resetTs   = 0;
+
+  uint32_t ts = millis();
+  bool on = (S.pwmDutyCycle > 0);
+
+  if (on) {
+    resetTs = ts;
+  }
+
+  if (ts - resetTs > (uint32_t)DUTY_MEAS_TIEMOUT_S * 1000) {
+    S.dutyValidSamples = 0;
+  }
+
+  if (ts - captureTs > 1000) {
+    captureTs = ts;
+    S.dutyMeas[S.dutyMeasIdx] += on;
+  }
+
+  if (ts - sampleTs > 60000) {
+    sampleTs = ts;
+    uint8_t mask = (1 << DUTY_MEAS_BUF_EXP) - 1;
+    S.dutyMeasIdx++;
+    S.dutyMeasIdx &= mask;
+    S.dutyMeas[S.dutyMeasIdx] = 0;
+    if (S.dutyValidSamples < DUTY_MEAS_WINDOW_SIZE_M) {
+      S.dutyValidSamples++;
+    }
+  }
+}
+
+
+/*
+ * Calculate the compressor duty cycle in percent
+ */
+uint8_t dutyCycleCalculate(void) {
+  uint32_t sum = 0;
+  uint32_t total = S.dutyValidSamples * 60;
+  int16_t idx = S.dutyMeasIdx;
+
+  for (uint8_t i = 0; i < S.dutyValidSamples; i++) {
+    idx--;
+    if (idx < 0) idx += DUTY_MEAS_BUF_SIZE;
+    sum += S.dutyMeas[idx];
+  }
+
+  if (total > 0) {
+    return (sum * 100) / total;
+  }
+  else {
+    return 0;
+  }
+}
+
+
+/*
  * Validate EEPROM data
  */
 void nvmValidate (void)
@@ -643,7 +713,7 @@ void nvmRead (void)
   uint32_t crc = crcCalc((uint8_t*)&Nvm, sizeof (Nvm) - sizeof (Nvm.crc));
   if (crc != Nvm.crc) {
     S.crcOk = false;
-    Serial.println(F("CRC FAILURE!\r\n"));
+    Serial.println(F("EEPROM CRC check failed - resetting EEPROM contents...\r\n"));
     Trace.log(TRC_CRC_FAIL);
     // Reset NVM on CRC failure
     Nvm.magicWord = 0;
@@ -728,7 +798,7 @@ int cmdSetMinOnDuration (int argc, char **argv)
   uint32_t duration = atol(argv[1]);
   Nvm.minOnDurationS = duration;
   nvmWrite();
-  Cli.xprintf("Min. on duration = %lds\r\n\r\n", Nvm.minOnDurationS);
+  Cli.xprintf("Min on duration = %lds\r\n\r\n", Nvm.minOnDurationS);
   return 0;
 }
 
@@ -744,7 +814,7 @@ int cmdSetMinOffDuration (int argc, char **argv)
   uint32_t duration = atol(argv[1]);
   Nvm.minOffDurationS = duration;
   nvmWrite();
-  Cli.xprintf("Min. off duration = %lds\r\n\r\n", Nvm.minOffDurationS);
+  Cli.xprintf("Min off duration = %lds\r\n\r\n", Nvm.minOffDurationS);
   return 0;
 }
 
@@ -760,7 +830,7 @@ int cmdSetMinDutyCycle (int argc, char **argv)
   uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.minRpmDutyCycle = dutyCycle;
   nvmWrite();
-  Cli.xprintf("PWM duty cycle at min. RPM = %d\r\n\r\n", Nvm.minRpmDutyCycle);
+  Cli.xprintf("PWM duty cycle at min RPM = %d\r\n\r\n", Nvm.minRpmDutyCycle);
   return 0;
 }
 
@@ -776,7 +846,7 @@ int cmdSetMaxDutyCycle (int argc, char **argv)
   uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.maxRpmDutyCycle = dutyCycle;
   nvmWrite();
-  Cli.xprintf("PWM duty cycle at max. RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
+  Cli.xprintf("PWM duty cycle at max RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
   return 0;
 }
 
@@ -815,6 +885,7 @@ int cmdStatus (int argc, char **argv)
   Cli.xprintf    (  "  Saved PWM    = %d\r\n", S.savedPwmDutyCycle);
   Cli.xprintf    (  "  Target PWM   = %d\r\n", S.targetPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM   = %d\r\n", S.pwmDutyCycle);
+  Cli.xprintf    (  "  Avg duty cyc = %d%% (%dm)\r\n", dutyCycleCalculate(), S.dutyValidSamples);
   Serial.println (  "");
   return 0;
 }
@@ -826,15 +897,15 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Cli.xprintf    (  "  Min. on duration    = %lds\r\n", Nvm.minOnDurationS);
-  Cli.xprintf    (  "  Min. off duration   = %lds\r\n", Nvm.minOffDurationS);
-  Cli.xprintf    (  "  Min. RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
-  Cli.xprintf    (  "  Max. RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
-  Cli.xprintf    (  "  Speed adjust delay  = %lds\r\n" , Nvm.speedAdjustDelayS);
-  Cli.xprintf    (  "  Speed adjust rate   = %d/min\r\n", Nvm.speedAdjustRate);
-  Cli.xprintf    (  "  Trace enabled       = %d\r\n", Nvm.traceEnable);
-  if (S.crcOk) Serial.print(F("  CRC PASS "));
-  else         Serial.print(F("  CRC FAIL "));
+  Cli.xprintf    (  "  Min on duration    = %lds\r\n", Nvm.minOnDurationS);
+  Cli.xprintf    (  "  Min off duration   = %lds\r\n", Nvm.minOffDurationS);
+  Cli.xprintf    (  "  Min RPM duty cycle = %d\r\n"   , Nvm.minRpmDutyCycle);
+  Cli.xprintf    (  "  Max RPM duty cycle = %d\r\n"   , Nvm.maxRpmDutyCycle);
+  Cli.xprintf    (  "  Speed adjust delay = %lds\r\n" , Nvm.speedAdjustDelayS);
+  Cli.xprintf    (  "  Speed adjust rate  = %d/min\r\n", Nvm.speedAdjustRate);
+  Cli.xprintf    (  "  Trace enabled      = %d\r\n", Nvm.traceEnable);
+  if (S.crcOk) Serial.print(F("  CRC pass "));
+  else         Serial.print(F("  CRC fail "));
   Cli.xprintf ("(%lx)\r\n", Nvm.crc);
   printVersion(2);
   Serial.println (  "");
