@@ -100,19 +100,19 @@ Following are some of the available commands:
 ## Gallery
 
  <p align="center">
- <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/layout.jpg" alt="drawing" width="600"/>
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/layout.png" alt="drawing" width="600"/>
  </p>
 
  <p align="center">
- <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-1.jpg" alt="drawing" width="600"/>
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-1.png" alt="drawing" width="600"/>
  </p>
 
  <p align="center">
- <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-2.jpg" alt="drawing" width="600"/>
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-2.png" alt="drawing" width="600"/>
  </p>
 
  <p align="center">
- <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-3.jpg" alt="drawing" width="600"/>
+ <img src="https://raw.githubusercontent.com/microfarad-de/fridge-controller/master/doc/perspective-3.png" alt="drawing" width="600"/>
  </p>
 
 ## Notes
