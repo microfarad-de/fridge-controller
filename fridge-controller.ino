@@ -70,10 +70,10 @@
 #define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
 #define SPEED_LOCK_ON_DELAY_S     600        // Time delay in seconds for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_S    600        // Time delay in seconds for deactivating the speed lock
-#define DUTY_MEAS_BUF_EXP         7          // Duty cycle measurement buffer size exponent
-#define DUTY_MEAS_BUF_SIZE        (1 << DUTY_MEAS_BUF_EXP) // Duty cycle measurement buffer size
-#define DUTY_MEAS_WINDOW_SIZE_M   120        // Duty cycle measurement window size in minutes
+#define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
+#define DUTY_MEAS_SAMPLE_DUR_M    2          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_TIEMOUT_S       1800       // Dyty cycle measurement is reset after this duration in seconds
+#define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
 
 #ifdef SERIAL_DEBUG
   #define DEBUG(x) x
@@ -108,9 +108,9 @@ struct State_t {
   uint8_t pwmDutyCycle       = 0;      // PWM duty cycle at the output pin
   uint8_t savedPwmDutyCycle  = 0;      // Saved PWM duty cycle
   uint8_t targetPwmDutyCycle = 0;      // Target PWM duty cycle
-  uint8_t dutyMeas[DUTY_MEAS_BUF_SIZE] = { 0 };  // Duty cycle measurement array
   uint8_t dutyMeasIdx        = 0;      // Duty cycle array index
-  uint8_t dutyValidSamples   = 0;     // Number of valid duty cycle measurement samples
+  uint8_t dutyValidSamples   = 0;      // Number of valid duty cycle measurement samples
+  uint8_t dutyMeas[DUTY_MEAS_BUF_SIZE] = { 0 };  // Duty cycle measurement array
 } S;
 
 
@@ -128,7 +128,7 @@ struct Nvm_t {
   uint32_t minOnDurationS    = 300;    // Minimum allowed compressor on duration in seconds
   uint32_t minOffDurationS   = 60;     // Minimum allowed compressor off duration in seconds
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
-  uint8_t  maxRpmDutyCycle   = 120;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
+  uint8_t  maxRpmDutyCycle   = 100;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace logging
   uint8_t  padding0[1];                // Memory alignment padding
   uint32_t speedAdjustDelayS = 120;    // Wait this amount of time in seconds after minOnDurationS
@@ -199,6 +199,7 @@ int cmdSetSpeedAdjustParam (int argc, char **argv);
 int cmdReset (int argc, char **argv);
 void printVersion (uint8_t indent);
 void helpText (void);
+void callback (void);
 
 
 /*
@@ -223,7 +224,7 @@ void setup (void)
   digitalWrite(OUTPUT_PIN, LOW);
 
   Led.initialize(LED_PIN);
-  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT);
+  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT, callback);
   Cli.init(SERIAL_BAUD, false, helpText);
 
   Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
@@ -352,6 +353,19 @@ void loop (void)
     default:
       break;
   }
+}
+
+
+/*
+ * Callback function for executing time critical tasks
+ * during trace dump operation
+ */
+void callback (void) {
+
+  Led.loopHandler();
+  dutyCycleLogger();
+  wdt_reset();
+
 }
 
 
@@ -613,13 +627,14 @@ void dutyCycleLogger (void)
     S.dutyMeas[S.dutyMeasIdx] += on;
   }
 
-  if (ts - sampleTs > 60000) {
+  if (ts - sampleTs > (uint32_t)DUTY_MEAS_SAMPLE_DUR_M * 60000) {
     sampleTs = ts;
-    uint8_t mask = (1 << DUTY_MEAS_BUF_EXP) - 1;
     S.dutyMeasIdx++;
-    S.dutyMeasIdx &= mask;
+    if (S.dutyMeasIdx >= DUTY_MEAS_BUF_SIZE) {
+      S.dutyMeasIdx = 0;
+    }
     S.dutyMeas[S.dutyMeasIdx] = 0;
-    if (S.dutyValidSamples < DUTY_MEAS_WINDOW_SIZE_M) {
+    if (S.dutyValidSamples < DUTY_MEAS_NUM_SAMPLES) {
       S.dutyValidSamples++;
     }
   }
@@ -631,7 +646,7 @@ void dutyCycleLogger (void)
  */
 uint8_t dutyCycleCalculate(void) {
   uint32_t sum = 0;
-  uint32_t total = S.dutyValidSamples * 60;
+  uint32_t total = S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M * 60;
   int16_t idx = S.dutyMeasIdx;
 
   for (uint8_t i = 0; i < S.dutyValidSamples; i++) {
@@ -885,7 +900,7 @@ int cmdStatus (int argc, char **argv)
   Cli.xprintf    (  "  Saved PWM    = %d\r\n", S.savedPwmDutyCycle);
   Cli.xprintf    (  "  Target PWM   = %d\r\n", S.targetPwmDutyCycle);
   Cli.xprintf    (  "  Output PWM   = %d\r\n", S.pwmDutyCycle);
-  Cli.xprintf    (  "  Avg duty cyc = %d%% (%dm)\r\n", dutyCycleCalculate(), S.dutyValidSamples);
+  Cli.xprintf    (  "  Avg duty cyc = %d%% (%dm)\r\n", dutyCycleCalculate(), S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M);
   Serial.println (  "");
   return 0;
 }
@@ -904,8 +919,8 @@ int cmdConfig (int argc, char **argv)
   Cli.xprintf    (  "  Speed adjust delay = %lds\r\n" , Nvm.speedAdjustDelayS);
   Cli.xprintf    (  "  Speed adjust rate  = %d/min\r\n", Nvm.speedAdjustRate);
   Cli.xprintf    (  "  Trace enabled      = %d\r\n", Nvm.traceEnable);
-  if (S.crcOk) Serial.print(F("  CRC pass "));
-  else         Serial.print(F("  CRC fail "));
+  if (S.crcOk) Serial.print(F("  CRC PASS "));
+  else         Serial.print(F("  CRC FAIL "));
   Cli.xprintf ("(%lx)\r\n", Nvm.crc);
   printVersion(2);
   Serial.println (  "");
