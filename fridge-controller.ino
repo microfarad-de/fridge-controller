@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.3.0
+ * Version: 1.3.1
  * Date:    May 19, 2025
  */
 
 
 #define VERSION_MAJOR 1  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -71,7 +71,7 @@
 #define SPEED_LOCK_ON_DELAY_S     600        // Time delay in seconds for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_S    600        // Time delay in seconds for deactivating the speed lock
 #define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
-#define DUTY_MEAS_SAMPLE_DUR_M    2          // Duty cycle measurement sample duration in minutes
+#define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_TIEMOUT_S       1800       // Dyty cycle measurement is reset after this duration in seconds
 #define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
 
@@ -528,8 +528,9 @@ void setPwm (void)
 void speedManager (void)
 {
   static enum {WAIT, ON, INCREASE, OFF, DECREASE} localState = WAIT;
-  static uint32_t startTs  = 0;
-  static uint32_t adjustTs = 0;
+  static uint32_t startTs   = 0;
+  static uint32_t adjustTs  = 0;
+  const  uint32_t oneSecond = 1000;
 
   if (Nvm.speedAdjustRate == 0) return;
 
@@ -548,7 +549,7 @@ void speedManager (void)
       break;
 
     case ON:
-      if ((ts - startTs > Nvm.speedAdjustDelayS * 1000) && !S.speedLock) {
+      if ((ts - startTs > Nvm.speedAdjustDelayS * oneSecond) && !S.speedLock) {
         adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = INCREASE;
       }
@@ -573,7 +574,7 @@ void speedManager (void)
       break;
 
     case OFF:
-      if (ts - startTs > Nvm.speedAdjustDelayS * 1000) {
+      if (ts - startTs > Nvm.speedAdjustDelayS * oneSecond) {
         adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = DECREASE;
       }
@@ -610,25 +611,41 @@ void dutyCycleLogger (void)
   static uint32_t captureTs = 0;
   static uint32_t sampleTs  = 0;
   static uint32_t resetTs   = 0;
+  const  uint32_t oneSecond = 1000;
+  const  uint32_t sampleDuration = (uint32_t)DUTY_MEAS_SAMPLE_DUR_M * 60 * oneSecond;
 
   uint32_t ts = millis();
+  uint32_t delta;
   bool on = (S.pwmDutyCycle > 0);
 
   if (on) {
     resetTs = ts;
   }
 
-  if (ts - resetTs > (uint32_t)DUTY_MEAS_TIEMOUT_S * 1000) {
+  if (ts - resetTs >= (uint32_t)DUTY_MEAS_TIEMOUT_S * oneSecond) {
     S.dutyValidSamples = 0;
   }
 
-  if (ts - captureTs > 1000) {
-    captureTs = ts;
+  delta = ts - captureTs;
+  if (delta >= oneSecond) {
+    if (delta >= 2 * oneSecond) {
+      captureTs = ts;
+    }
+    else {
+      captureTs += oneSecond;
+    }
     S.dutyMeas[S.dutyMeasIdx] += on;
   }
 
-  if (ts - sampleTs > (uint32_t)DUTY_MEAS_SAMPLE_DUR_M * 60000) {
-    sampleTs = ts;
+  delta = ts - sampleTs;
+  if (delta >= sampleDuration) {
+    if (delta >= 2 * sampleDuration) {
+      sampleTs = ts;
+    }
+    else {
+      sampleTs += sampleDuration;
+    }
+
     S.dutyMeasIdx++;
     if (S.dutyMeasIdx >= DUTY_MEAS_BUF_SIZE) {
       S.dutyMeasIdx = 0;
