@@ -131,7 +131,7 @@ struct Nvm_t {
   uint8_t  maxRpmDutyCycle   = 100;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace logging
   uint8_t  padding0[1];                // Memory alignment padding
-  uint32_t speedAdjustDelayS = 120;    // Wait this amount of time in seconds after minOnDurationS
+  uint32_t speedAdjustDelayS = 60;     // Wait this amount of time in seconds after minOnDurationS
                                        // or minOffDurationS elapses before adjusting compressor speed
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  padding1[11];               // Memory alignment padding
