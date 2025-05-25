@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.3.1
- * Date:    May 19, 2025
+ * Version: 1.3.2
+ * Date:    May 25, 2025
  */
 
 
 #define VERSION_MAJOR 1  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MAINT 2  // Maintenance version
 
 
 #include <Arduino.h>
@@ -610,8 +610,8 @@ void dutyCycleLogger (void)
 {
   static uint32_t captureTs = 0;
   static uint32_t sampleTs  = 0;
-  static uint32_t resetTs   = 0;
   const  uint32_t oneSecond = 1000;
+  static uint32_t resetTs   = -(uint32_t)DUTY_MEAS_TIEMOUT_S * oneSecond;
   const  uint32_t sampleDuration = (uint32_t)DUTY_MEAS_SAMPLE_DUR_M * 60 * oneSecond;
 
   uint32_t ts = millis();
@@ -624,6 +624,8 @@ void dutyCycleLogger (void)
 
   if (ts - resetTs >= (uint32_t)DUTY_MEAS_TIEMOUT_S * oneSecond) {
     S.dutyValidSamples = 0;
+    captureTs = ts;
+    sampleTs  = ts;
   }
 
   delta = ts - captureTs;
