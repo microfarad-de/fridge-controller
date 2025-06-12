@@ -28,13 +28,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 1.4.0
+ * Version: 2.0.0
  * Date:    June 11, 2025
  */
 
 
-#define VERSION_MAJOR 1  // Major version
-#define VERSION_MINOR 4  // Minor version
+#define VERSION_MAJOR 2  // Major version
+#define VERSION_MINOR 0  // Minor version
 #define VERSION_MAINT 0  // Maintenance version
 
 
@@ -109,6 +109,8 @@ struct State_t {
   bool    crcOk              = false;  // CRC check status
   bool    inputEnabled       = false;  // Input pin state after debounce
   bool    speedLock          = true;   // Enforce compressor operation at minimum speed
+  bool    defrost            = false;  // Defrost cycle is active
+  bool    shortRun           = false;  // Compressor on time doesn't exceed minimum on duration
   uint8_t pwmDutyCycle       = 0;      // PWM duty cycle at the output pin
   uint8_t savedPwmDutyCycle  = 0;      // Saved PWM duty cycle
   uint8_t targetPwmDutyCycle = 0;      // Target PWM duty cycle
@@ -134,9 +136,11 @@ struct Nvm_t {
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 100;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
-  uint8_t  speedIncrDelayM   = 20;     // Wait this amount of time in minutes before increasing compressor speed
-  uint8_t  speedDecrDelayM   = 11;     // Wait this amount of time in minutes before decreasing compressor speed
+  uint8_t  speedIncrDelayM   = 1;      // Wait this amount of time in minutes before increasing compressor speed
+  uint8_t  speedDecrDelayM   = 1;      // Wait this amount of time in minutes before decreasing compressor speed
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
+  uint8_t  defrostIntervalH  = 6;      // Defrost interval in hours
+  uint8_t  defrostDurationM  = 30;     // Defrost cycle duration in minutes
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
 
@@ -159,6 +163,7 @@ const char *traceMsgList[] = {
   "Decrease speed %d",
   "Set speed %d",
   "Speed lock %d",
+  "Defrost %d",
   "CRC FAIL",
 };
 enum {
@@ -169,6 +174,7 @@ enum {
   TRC_DECREASE_SPEED,
   TRC_SET_SPEED,
   TRC_SPEED_LOCK,
+  TRC_DEFROST,
   TRC_CRC_FAIL,
   TRC_COUNT
 };
@@ -183,6 +189,7 @@ void readInputPin (void);
 void setPwm (void);
 void ledManager   (void);
 void speedManager (void);
+void defrostManager (void);
 void dutyCycleLogger (void);
 void nvmValidate  (void);
 void nvmRead      (void);
@@ -199,6 +206,8 @@ int cmdSetMaxDutyCycle   (int argc, char **argv);
 int cmdSetSpeedIncrDelay (int argc, char **argv);
 int cmdSetSpeedDecrDelay (int argc, char **argv);
 int cmdSetSpeedRate      (int argc, char **argv);
+int cmdSetDefrostInterval (int argc, char **argv);
+int cmdSetDefrostDuration (int argc, char **argv);
 void printVersion (uint8_t indent);
 void helpText (void);
 void callback (void);
@@ -243,6 +252,8 @@ void setup (void)
   Cli.newCmd    ("spdi",    "Set speed increase delay (arg: <0..60>m)", cmdSetSpeedIncrDelay);
   Cli.newCmd    ("spdd",    "Set speed decrease delay (arg: <0..60>m)", cmdSetSpeedDecrDelay);
   Cli.newCmd    ("spdr",    "Set speed adjust rate (arg <0..255>)", cmdSetSpeedRate);
+  Cli.newCmd    ("defi",    "Set defrost interval (arg <0..24>h)", cmdSetDefrostInterval);
+  Cli.newCmd    ("defd",    "Set defrost duration (arg <0..60>m)", cmdSetDefrostDuration);
   Cli.showHelp();
 
   nvmRead();
@@ -277,6 +288,7 @@ void loop (void)
   setPwm();
   ledManager();
   speedManager();
+  defrostManager();
   dutyCycleLogger();
   powerSave();
 
@@ -301,7 +313,7 @@ void loop (void)
 
     // Wait for minimum OFF duration
     case STATE_OFF_WAIT:
-      if (ts - compressorOffTs > Nvm.minOffDurationM * ONE_MINUTE) {
+      if (ts - compressorOffTs > Nvm.minOffDurationM * ONE_MINUTE && !S.defrost) {
         S.state = STATE_OFF;
       }
       break;
@@ -320,9 +332,10 @@ void loop (void)
 
     // Compressor ON state entry point
     case STATE_ON_ENTRY:
-      compressorOnTs = ts;
-      speedLockTs    = ts;
+      compressorOnTs       = ts;
+      speedLockTs          = ts;
       S.targetPwmDutyCycle = S.savedPwmDutyCycle;
+      S.shortRun           = false;
 
       nvmRead ();  // Perform a CRC check
       if (S.crcOk) {
@@ -337,6 +350,9 @@ void loop (void)
     // Wait for minimum ON duration
     case STATE_ON_WAIT:
       if (ts - compressorOnTs > Nvm.minOnDurationM * ONE_MINUTE) {
+        if (false == S.inputEnabled) {
+          S.shortRun = true;
+        }
         S.state = STATE_ON;
       }
       break;
@@ -529,22 +545,23 @@ void setPwm (void)
  */
 void speedManager (void)
 {
-  static enum {START, ON, INCREASE, OFF, DECREASE} localState = START;
+  static enum {WAIT, ON, INCREASE, OFF, DECREASE} localState = WAIT;
   static uint32_t startTs   = 0;
   static uint32_t adjustTs  = 0;
 
-  if (Nvm.speedAdjustRate == 0) return;
+  if (Nvm.speedAdjustRate == 0) {
+    return;
+  }
 
-  uint32_t ts  = millis();
-  bool on = (S.pwmDutyCycle > 0);
+  uint32_t ts = millis();
 
   switch (localState) {
-    case START:
-        if (on) {
+    case WAIT:
+        if (STATE_ON == S.state) {
           startTs    = ts;
           localState = ON;
         }
-        else {
+        else if (STATE_OFF == S.state) {
           startTs    = ts;
           localState = OFF;
         }
@@ -555,8 +572,8 @@ void speedManager (void)
         adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = INCREASE;
       }
-      if (!on) {
-        localState = START;
+      if (S.state != STATE_ON) {
+        localState = WAIT;
       }
       break;
 
@@ -570,8 +587,8 @@ void speedManager (void)
 
         adjustTs = ts;
       }
-      if (!on) {
-        localState = START;
+      if (S.state != STATE_ON) {
+        localState = WAIT;
       }
       break;
 
@@ -580,8 +597,8 @@ void speedManager (void)
         adjustTs   = ts - SPEED_ADJUST_PERIOD_MS;
         localState = DECREASE;
       }
-      if (on) {
-        localState = START;
+      if (S.state != STATE_OFF) {
+        localState = WAIT;
       }
       break;
 
@@ -594,14 +611,57 @@ void speedManager (void)
         }
         adjustTs = ts;
       }
-      if (on) {
-        localState = START;
+      if (S.state != STATE_OFF) {
+        localState = WAIT;
       }
       break;
 
     default:
       break;
   }
+}
+
+
+/*
+ * Defrost control routine
+ */
+void defrostManager (void)
+{
+  static enum {WAIT, ACTIVE} localState = WAIT;
+  static uint32_t intervalTs = 0;
+  static uint32_t durationTs = 0;
+
+  if (Nvm.defrostIntervalH == 0) {
+    return;
+  }
+
+  uint32_t ts = millis();
+
+  switch (localState) {
+    case WAIT:
+        if (ts - intervalTs >= Nvm.defrostIntervalH * ONE_HOUR && S.shortRun) {
+          durationTs = ts;
+          intervalTs = ts;
+          S.defrost  = true;
+          S.shortRun = false;
+          S.state    = STATE_OFF_ENTRY;
+          localState = ACTIVE;
+          Trace.log(TRC_DEFROST, 1);
+        }
+      break;
+
+    case ACTIVE:
+        if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
+          S.defrost  = false;
+          localState = WAIT;
+          Trace.log(TRC_DEFROST, 0);
+        }
+      break;
+
+    default:
+      break;
+  }
+
 }
 
 
@@ -617,7 +677,7 @@ void dutyCycleLogger (void)
 
   uint32_t ts = millis();
   uint32_t delta;
-  bool on = (S.pwmDutyCycle > 0);
+  bool     on = (S.pwmDutyCycle > 0);
 
   if (on) {
     resetTs = ts;
@@ -664,10 +724,11 @@ void dutyCycleLogger (void)
 /*
  * Calculate the compressor duty cycle in percent
  */
-uint8_t dutyCycleCalculate(void) {
-  uint32_t sum = 0;
+uint8_t dutyCycleCalculate(void)
+{
+  uint32_t sum   = 0;
   uint32_t total = S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M * 60;
-  int16_t idx = S.dutyMeasIdx;
+  int16_t  idx   = S.dutyMeasIdx;
 
   for (uint8_t i = 0; i < S.dutyValidSamples; i++) {
     idx--;
@@ -738,6 +799,16 @@ void nvmValidate (void)
   result &= Nvm.speedAdjustRate >= 0;
   if (!result) {
     Nvm.speedAdjustRate = NvmInit.speedAdjustRate;
+  }
+
+  result  = Nvm.defrostIntervalH <= 24;
+  if (!result) {
+    Nvm.defrostIntervalH = NvmInit.defrostIntervalH;
+  }
+
+  result  = Nvm.defrostDurationM <= 60;
+  if (!result) {
+    Nvm.defrostDurationM = NvmInit.defrostDurationM;
   }
 }
 
@@ -810,7 +881,9 @@ int cmdSetMinOnDuration (int argc, char **argv)
   uint8_t duration   = atoi(argv[1]);
   Nvm.minOnDurationM = duration;
   nvmWrite();
-  Cli.xprintf("Min on duration = %dm\r\n\r\n", Nvm.minOnDurationM);
+  Serial.print(F("Min on duration = "));
+  Serial.print(Nvm.minOnDurationM, DEC);
+  Serial.println(F("m\r\n"));
   return 0;
 }
 
@@ -826,7 +899,9 @@ int cmdSetMinOffDuration (int argc, char **argv)
   uint8_t duration    = atoi(argv[1]);
   Nvm.minOffDurationM = duration;
   nvmWrite();
-  Cli.xprintf("Min off duration = %dm\r\n\r\n", Nvm.minOffDurationM);
+  Serial.print(F("Min off duration = "));
+  Serial.print(Nvm.minOffDurationM, DEC);
+  Serial.println(F("m\r\n"));
   return 0;
 }
 
@@ -842,7 +917,9 @@ int cmdSetMinDutyCycle (int argc, char **argv)
   uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.minRpmDutyCycle = dutyCycle;
   nvmWrite();
-  Cli.xprintf("PWM duty cycle at min RPM = %d\r\n\r\n", Nvm.minRpmDutyCycle);
+  Serial.print(F("PWM duty cycle at min RPM = "));
+  Serial.println(Nvm.minRpmDutyCycle, DEC);
+  Serial.println("");
   return 0;
 }
 
@@ -858,7 +935,9 @@ int cmdSetMaxDutyCycle (int argc, char **argv)
   uint8_t dutyCycle   = atoi(argv[1]);
   Nvm.maxRpmDutyCycle = dutyCycle;
   nvmWrite();
-  Cli.xprintf("PWM duty cycle at max RPM = %d\r\n\r\n", Nvm.maxRpmDutyCycle);
+  Serial.print(F("PWM duty cycle at max RPM = "));
+  Serial.println(Nvm.maxRpmDutyCycle, DEC);
+  Serial.println("");
   return 0;
 }
 
@@ -874,7 +953,9 @@ int cmdSetSpeedIncrDelay (int argc, char **argv)
   uint8_t delay       = atoi(argv[1]);
   Nvm.speedIncrDelayM = delay;
   nvmWrite();
-  Cli.xprintf("Speed increase delay = %dm\r\n\r\n", Nvm.speedIncrDelayM);
+  Serial.print(F("Speed increase delay = "));
+  Serial.print(Nvm.speedIncrDelayM, DEC);
+  Serial.println(F("m\r\n"));
   return 0;
 }
 
@@ -890,7 +971,9 @@ int cmdSetSpeedDecrDelay (int argc, char **argv)
   uint8_t delay       = atoi(argv[1]);
   Nvm.speedDecrDelayM = delay;
   nvmWrite();
-  Cli.xprintf("Speed decrease delay = %dm\r\n\r\n", Nvm.speedDecrDelayM);
+  Serial.print(F("Speed decrease delay = "));
+  Serial.print(Nvm.speedDecrDelayM, DEC);
+  Serial.println(F("m\r\n"));
   return 0;
 }
 
@@ -903,13 +986,51 @@ int cmdSetSpeedRate (int argc, char **argv)
   if (argc != 2) {
     return 1;
   }
-  uint8_t rate  = atoi(argv[1]);
+  uint8_t rate        = atoi(argv[1]);
   Nvm.speedAdjustRate = rate;
   nvmWrite();
   if (Nvm.speedAdjustRate == 0) {
     S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
   }
-  Cli.xprintf("Speed adjust rate = %d/m\r\n\r\n", Nvm.speedAdjustRate);
+  Serial.print(F("Speed adjust rate = "));
+  Serial.print(Nvm.speedAdjustRate, DEC);
+  Serial.println(F("/m\r\n"));
+  return 0;
+}
+
+
+/*
+ * Set the defrost interval
+ */
+int cmdSetDefrostInterval (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t interval     = atoi(argv[1]);
+  Nvm.defrostIntervalH = interval;
+  nvmWrite();
+  Serial.print(F("Defrost interval = "));
+  Serial.print(Nvm.defrostIntervalH, DEC);
+  Serial.println(F("h\r\n"));
+  return 0;
+}
+
+
+/*
+ * Set the defrost cycle duratrion
+ */
+int cmdSetDefrostDuration (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t duration     = atoi(argv[1]);
+  Nvm.defrostDurationM = duration;
+  nvmWrite();
+  Serial.print(F("Defrost duration = "));
+  Serial.print(Nvm.defrostDurationM, DEC);
+  Serial.println(F("m\r\n"));
   return 0;
 }
 
@@ -920,14 +1041,16 @@ int cmdSetSpeedRate (int argc, char **argv)
 int cmdStatus (int argc, char **argv)
 {
   Serial.println (F("System status:"));
-  Cli.xprintf    (  "  State        = %d\r\n", S.state);
-  Cli.xprintf    (  "  Input status = %d\r\n", S.inputEnabled);
-  Cli.xprintf    (  "  Speed lock   = %d\r\n", S.speedLock);
-  Cli.xprintf    (  "  Saved PWM    = %d\r\n", S.savedPwmDutyCycle);
-  Cli.xprintf    (  "  Target PWM   = %d\r\n", S.targetPwmDutyCycle);
-  Cli.xprintf    (  "  Output PWM   = %d\r\n", S.pwmDutyCycle);
-  Cli.xprintf    (  "  Avg duty cyc = %d%% (%dm)\r\n", dutyCycleCalculate(), S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M);
-  Serial.println (  "");
+  Serial.print(F("  State        = ")); Serial.println(S.state, DEC);
+  Serial.print(F("  Input status = ")); Serial.println(S.inputEnabled, DEC);
+  Serial.print(F("  Speed lock   = ")); Serial.println(S.speedLock, DEC);
+  Serial.print(F("  Defrost      = ")); Serial.println(S.defrost, DEC);
+  Serial.print(F("  Saved PWM    = ")); Serial.println(S.savedPwmDutyCycle, DEC);
+  Serial.print(F("  Target PWM   = ")); Serial.println(S.targetPwmDutyCycle, DEC);
+  Serial.print(F("  Output PWM   = ")); Serial.println(S.pwmDutyCycle, DEC);
+  Serial.print(F("  Avg duty cyc = ")); Serial.print(dutyCycleCalculate(), DEC);
+  Serial.print(F("% (")); Serial.print(S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M, DEC); Serial.println(F("m)"));
+  Serial.println("");
   return 0;
 }
 
@@ -938,19 +1061,21 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Cli.xprintf    (  "  Min on duration    = %dm\r\n",  Nvm.minOnDurationM);
-  Cli.xprintf    (  "  Min off duration   = %dm\r\n",  Nvm.minOffDurationM);
-  Cli.xprintf    (  "  Min RPM duty cycle = %d\r\n" ,  Nvm.minRpmDutyCycle);
-  Cli.xprintf    (  "  Max RPM duty cycle = %d\r\n" ,  Nvm.maxRpmDutyCycle);
-  Cli.xprintf    (  "  Speed incr delay   = %dm\r\n" , Nvm.speedIncrDelayM);
-  Cli.xprintf    (  "  Speed decr delay   = %dm\r\n" , Nvm.speedDecrDelayM);
-  Cli.xprintf    (  "  Speed adjust rate  = %d/m\r\n", Nvm.speedAdjustRate);
-  Cli.xprintf    (  "  Trace enabled      = %d\r\n",   Nvm.traceEnable);
-  if (S.crcOk) Serial.print(F("  CRC PASS "));
-  else         Serial.print(F("  CRC FAIL "));
-  Cli.xprintf ("(%lx)\r\n", Nvm.crc);
+  Serial.print(F("  Min on duration    = ")); Serial.print(Nvm.minOnDurationM, DEC);  Serial.println(F("m"));
+  Serial.print(F("  Min off duration   = ")); Serial.print(Nvm.minOffDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  Min RPM duty cycle = ")); Serial.println(Nvm.minRpmDutyCycle, DEC);
+  Serial.print(F("  Max RPM duty cycle = ")); Serial.println(Nvm.maxRpmDutyCycle, DEC);
+  Serial.print(F("  Speed incr delay   = ")); Serial.print(Nvm.speedIncrDelayM,  DEC); Serial.println(F("m"));
+  Serial.print(F("  Speed decr delay   = ")); Serial.print(Nvm.speedDecrDelayM,  DEC); Serial.println(F("m"));
+  Serial.print(F("  Speed adjust rate  = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
+  Serial.print(F("  Defrost interval   = ")); Serial.print(Nvm.defrostIntervalH, DEC); Serial.println(F("h"));
+  Serial.print(F("  Defrost duration   = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  Trace enabled      = ")); Serial.println(Nvm.traceEnable, DEC);
+  if (S.crcOk) Serial.print(F("  CRC PASS ("));
+  else         Serial.print(F("  CRC FAIL ("));
+  Serial.print(Nvm.crc, HEX); Serial.println(F(")"));
   printVersion(2);
-  Serial.println (  "");
+  Serial.println ("");
   return 0;
 }
 

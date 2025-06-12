@@ -70,12 +70,11 @@ The chosen PWM frequency has proven to work well with the Secop controller model
 
 ## Speed Control Algorithm
 
-The speed controller waits for configurable speed increase delay. If compressor on duration excceeds the speed
-increase delay, the controller starts ramping up the compressor RPM by decreasing the AnalogWrite() input value by a predetermined number of steps every minute.
+Once the minimum compressor on duration elapses, the speed controller waits for an additional configurable speed adjust delay. Once the delay duration has elapsed, the controller starts ramping up the compressor RPM by decreasing the AnalogWrite() input value by a predetermined number of steps every minute.
 
-As the RPM increases, the compressor would require less runtime in order to achieve the required cooling capacity. Hence, the speed will stop increasing once the speed increase delay is no longer being exceeded.
+As the RPM increases, the compressor would require less runtime in order to achieve the required cooling capacity. Hence, the speed will stop increasing once its minimum on duration plus the speed adjust delay are no longer being exceeded.
 
-Conversely, if the compressor off duration exceeds the configurable speed decrease delay, the speed controller starts ramping down the compressor RPM by gradually increasing the AnalogWrite() input value until the off duration gets short enough to prevent any further RPM decrease.
+Conversely, if the compressor off duration exceeds the minimum allowed off duration plus the speed adjust delay, the speed controller starts ramping down the compressor RPM by gradually increasing the AnalogWrite() input value until the off duration gets short enough to prevent any further RPM decrease.
 
 The AnalogWrite() input value is allowed to be adjusted within a preconfigured range corresponding to the minimum and maximum compressor RPMs.
 
@@ -93,11 +92,13 @@ Following are some of the available commands:
 * `t [0,1]`: If argument is set, enable/disable tracing to EEPROM. Otherwise print the trace.
 * `ond <0..60>`: Set the minimum compressor on duration in minutes
 * `offd <0..60>`: Set the minimum compressor off duration in minutes
-* `pwml <1..255>`: AnalogWrite() input value for minimum allowed RPM
-* `pwmh <1..255>`: AnalogWrite() input value for maximum allowed RPM
-* `spdi <0..60>`: Speed increase delay in minutes
-* `spdd <0..60>`: Speed decrease delay in minutes
-* `spdr <0..255>`: Speed increase adjust rate in AnalogWrite() steps per minute
+* `pwml <1..255>`: Set the AnalogWrite() input value for minimum allowed RPM
+* `pwmh <1..255>`: Set the AnalogWrite() input value for maximum allowed RPM
+* `spdi <0..60>`: Set the speed increase delay in minutes
+* `spdd <0..60>`: Set the speed decrease delay in minutes
+* `spdr <0..255>`: Set the speed increase adjust rate in AnalogWrite() steps per minute (0 = disabled)
+* `defi <0..24>`: Set the defrost interval in hours (0 = disabled)
+* `defd <0..60>`: Set the defrost duration in minutes (0 = disabled)
 
 ## Gallery
 
