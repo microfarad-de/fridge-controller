@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 2.0.0
- * Date:    June 11, 2025
+ * Date:    June 15, 2025
  */
 
 
@@ -71,7 +71,7 @@
 #define SPEED_LOCK_ON_DELAY_M     30         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    10         // Time delay in minutes for deactivating the speed lock
 #define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
-#define DUTY_MEAS_SAMPLE_DUR_M    2          // Duty cycle measurement sample duration in minutes
+#define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_TIEMOUT_M       60         // Duty cycle measurement is reset after this duration in minutes
 #define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
 
@@ -140,7 +140,7 @@ struct Nvm_t {
   uint8_t  speedDecrDelayM   = 1;      // Wait this amount of time in minutes before decreasing compressor speed
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostIntervalH  = 6;      // Defrost interval in hours
-  uint8_t  defrostDurationM  = 30;     // Defrost cycle duration in minutes
+  uint8_t  defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
 
