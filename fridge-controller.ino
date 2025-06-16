@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 2.0.0
- * Date:    June 15, 2025
+ * Version: 2.0.1
+ * Date:    June 16, 2025
  */
 
 
 #define VERSION_MAJOR 2  // Major version
 #define VERSION_MINOR 0  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -132,11 +132,11 @@ struct State_t {
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
   uint8_t  minOnDurationM    = 10;     // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 10;     // Minimum allowed compressor off duration in minutes
+  uint8_t  minOffDurationM   = 5;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 100;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
-  uint8_t  speedIncrDelayM   = 1;      // Wait this amount of time in minutes before increasing compressor speed
+  uint8_t  speedIncrDelayM   = 10;     // Wait this amount of time in minutes before increasing compressor speed
   uint8_t  speedDecrDelayM   = 1;      // Wait this amount of time in minutes before decreasing compressor speed
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostIntervalH  = 6;      // Defrost interval in hours
@@ -412,13 +412,13 @@ void readInputPin (void)
   uint32_t ts = millis();
 
   if (S.inputEnabled) {
-    if (digitalRead(INPUT_PIN) == LOW) inputTs = ts;
+    if (LOW == digitalRead(INPUT_PIN)) inputTs = ts;
     if (ts - inputTs > INPUT_DEBOUNCE_DELAY_MS) {
       S.inputEnabled = false;
     }
   }
   else {
-    if (digitalRead(INPUT_PIN) == HIGH) inputTs = ts;
+    if (HIGH == digitalRead(INPUT_PIN)) inputTs = ts;
     if (ts - inputTs > INPUT_DEBOUNCE_DELAY_MS) {
       S.inputEnabled = true;
     }
@@ -502,13 +502,13 @@ void setPwm (void)
 
   if (S.targetPwmDutyCycle != S.pwmDutyCycle) {
     // Speed adjust disabled
-    if (Nvm.speedAdjustRate == 0) {
+    if (0 == Nvm.speedAdjustRate) {
       S.pwmDutyCycle = S.targetPwmDutyCycle;
       analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
       lastPwmDutyCycle = S.pwmDutyCycle;
     }
     // Stop
-    else if (S.targetPwmDutyCycle == 0) {
+    else if (0 == S.targetPwmDutyCycle) {
       DEBUG(Serial.println("Stop"));
       S.pwmDutyCycle = 0;
       analogWrite(OUTPUT_PIN, 0);
@@ -549,7 +549,7 @@ void speedManager (void)
   static uint32_t startTs   = 0;
   static uint32_t adjustTs  = 0;
 
-  if (Nvm.speedAdjustRate == 0) {
+  if (0 == Nvm.speedAdjustRate) {
     return;
   }
 
@@ -627,41 +627,31 @@ void speedManager (void)
  */
 void defrostManager (void)
 {
-  static enum {WAIT, ACTIVE} localState = WAIT;
   static uint32_t intervalTs = 0;
   static uint32_t durationTs = 0;
 
-  if (Nvm.defrostIntervalH == 0) {
+  if (0 == Nvm.defrostIntervalH) {
     return;
   }
 
   uint32_t ts = millis();
 
-  switch (localState) {
-    case WAIT:
-        if (ts - intervalTs >= Nvm.defrostIntervalH * ONE_HOUR && S.shortRun) {
-          durationTs = ts;
-          intervalTs = ts;
-          S.defrost  = true;
-          S.shortRun = false;
-          S.state    = STATE_OFF_ENTRY;
-          localState = ACTIVE;
-          Trace.log(TRC_DEFROST, 1);
-        }
-      break;
-
-    case ACTIVE:
-        if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
-          S.defrost  = false;
-          localState = WAIT;
-          Trace.log(TRC_DEFROST, 0);
-        }
-      break;
-
-    default:
-      break;
+  if (false == S.defrost) {
+    if (ts - intervalTs >= Nvm.defrostIntervalH * ONE_HOUR && S.shortRun) {
+      durationTs = ts;
+      intervalTs = ts;
+      S.shortRun = false;
+      S.defrost  = true;
+      S.state    = STATE_OFF_ENTRY;
+      Trace.log(TRC_DEFROST, 1);
+    }
   }
-
+  else {
+    if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
+      S.defrost  = false;
+      Trace.log(TRC_DEFROST, 0);
+    }
+  }
 }
 
 
@@ -989,7 +979,7 @@ int cmdSetSpeedRate (int argc, char **argv)
   uint8_t rate        = atoi(argv[1]);
   Nvm.speedAdjustRate = rate;
   nvmWrite();
-  if (Nvm.speedAdjustRate == 0) {
+  if (0 == Nvm.speedAdjustRate) {
     S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
   }
   Serial.print(F("Speed adjust rate = "));
@@ -1010,6 +1000,9 @@ int cmdSetDefrostInterval (int argc, char **argv)
   uint8_t interval     = atoi(argv[1]);
   Nvm.defrostIntervalH = interval;
   nvmWrite();
+  if (0 == Nvm.defrostIntervalH) {
+    S.defrost = false;
+  }
   Serial.print(F("Defrost interval = "));
   Serial.print(Nvm.defrostIntervalH, DEC);
   Serial.println(F("h\r\n"));
@@ -1061,7 +1054,7 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Serial.print(F("  Min on duration    = ")); Serial.print(Nvm.minOnDurationM, DEC);  Serial.println(F("m"));
+  Serial.print(F("  Min on duration    = ")); Serial.print(Nvm.minOnDurationM,  DEC); Serial.println(F("m"));
   Serial.print(F("  Min off duration   = ")); Serial.print(Nvm.minOffDurationM, DEC); Serial.println(F("m"));
   Serial.print(F("  Min RPM duty cycle = ")); Serial.println(Nvm.minRpmDutyCycle, DEC);
   Serial.print(F("  Max RPM duty cycle = ")); Serial.println(Nvm.maxRpmDutyCycle, DEC);
@@ -1085,7 +1078,7 @@ int cmdConfig (int argc, char **argv)
  */
 int cmdTrace (int argc, char **argv)
 {
-  if (argc == 2) {
+  if (2 == argc) {
     uint8_t enable = atoi(argv[1]);
     if (1 == enable) {
       Nvm.traceEnable = true;
