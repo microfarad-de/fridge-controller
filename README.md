@@ -78,6 +78,14 @@ Conversely, if the compressor off duration exceeds the minimum allowed off durat
 
 The AnalogWrite() input value is allowed to be adjusted within a preconfigured range corresponding to the minimum and maximum compressor RPMs.
 
+## Evaporator Defrost Routine
+
+The speed controller can be configured to periodically pause the cooling cycle for a predefined amount of time in order to allow for the evaporator ice buildup to melt. The defrost routine is initiated when the following condition are met:
+* The compressor runtime has reached a preset number of hours.
+* The compressor duty cycle does not exceed a preset percentage value.
+
+Once the above conditions have been met, the compressor is turned of for a preset number of minutes in order to allow for any ice buildup to melt.
+
 ## Configuration
 
 The the speed controller is configurable over the Arduino's serial interface (9600 Baud). It provides a command line interface and a self explanatory help screen. All configuration parameter's are stored within Arduino's EEPROM.
@@ -97,8 +105,10 @@ Following are some of the available commands:
 * `spdi <0..60>`: Set the speed increase delay in minutes
 * `spdd <0..60>`: Set the speed decrease delay in minutes
 * `spdr <0..255>`: Set the speed increase adjust rate in AnalogWrite() steps per minute (0 = disabled)
-* `defi <0..24>`: Set the defrost interval in hours (0 = disabled)
-* `defd <0..60>`: Set the defrost duration in minutes (0 = disabled)
+* `defr <0..24>`: Set the defrost the minimum compressor runtime hours for starting a defrost cycle
+* `defc <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
+* `defd <0..60>`: Set the defrost cycle duration in minutes (0 = disabled)
+
 
 ## Gallery
 
