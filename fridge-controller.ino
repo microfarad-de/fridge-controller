@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 2.1.0
- * Date:    June 18, 2025
+ * Version: 2.1.1
+ * Date:    June 20, 2025
  */
 
 
 #define VERSION_MAJOR 2  // Major version
 #define VERSION_MINOR 1  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -115,6 +115,7 @@ struct State_t {
   uint8_t targetPwmDutyCycle = 0;      // Target PWM duty cycle
   uint8_t dutyMeasIdx        = 0;      // Duty cycle array index
   uint8_t dutyValidSamples   = 0;      // Number of valid duty cycle measurement samples
+  uint8_t dutyCycleValue     = 0;      // Average compressor duty cycle value in percent
   uint8_t dutyMeas[DUTY_MEAS_BUF_SIZE] = { 0 };  // Duty cycle measurement array
 } S;
 
@@ -632,7 +633,6 @@ void defrostManager (void)
   static uint32_t durationTs = 0;
   static uint32_t secondTs   = 0;
   static uint32_t runtimeS   = 0;
-  static uint8_t  dutyCycle  = 0;
 
   uint32_t ts = millis();
   bool     on = (S.pwmDutyCycle > 0);
@@ -642,7 +642,7 @@ void defrostManager (void)
     if (on) {
       runtimeS++;
     }
-    dutyCycle = dutyCycleCalculate();
+
   }
 
   if (0 == Nvm.defrostDurationM) {
@@ -650,11 +650,10 @@ void defrostManager (void)
   }
 
   if (false == S.defrost) {
-    if (runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && dutyCycle <= Nvm.defrostStartDc) {
+    if (runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc && STATE_OFF_ENTRY == S.state) {
       durationTs = ts;
       runtimeS   = 0;
       S.defrost  = true;
-      S.state    = STATE_OFF_ENTRY;
       Trace.log(TRC_DEFROST, 1);
     }
   }
@@ -719,6 +718,7 @@ void dutyCycleLogger (void)
     if (S.dutyValidSamples < DUTY_MEAS_NUM_SAMPLES) {
       S.dutyValidSamples++;
     }
+    S.dutyCycleValue = dutyCycleCalculate();
   }
 }
 
@@ -1076,7 +1076,7 @@ int cmdStatus (int argc, char **argv)
   Serial.print(F("  Saved PWM    = ")); Serial.println(S.savedPwmDutyCycle, DEC);
   Serial.print(F("  Target PWM   = ")); Serial.println(S.targetPwmDutyCycle, DEC);
   Serial.print(F("  Output PWM   = ")); Serial.println(S.pwmDutyCycle, DEC);
-  Serial.print(F("  Duty cycle   = ")); Serial.print(dutyCycleCalculate(), DEC);
+  Serial.print(F("  Duty cycle   = ")); Serial.print(S.dutyCycleValue, DEC);
   Serial.print(F("% (")); Serial.print(S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M, DEC); Serial.println(F("m)"));
   Serial.println("");
   return 0;
