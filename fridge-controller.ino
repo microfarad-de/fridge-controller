@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 2.1.1
- * Date:    June 20, 2025
+ * Date:    June 23, 2025
  */
 
 
@@ -131,16 +131,16 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 10;     // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 5;      // Minimum allowed compressor off duration in minutes
+  uint8_t  minOnDurationM    = 5;      // Minimum allowed compressor on duration in minutes
+  uint8_t  minOffDurationM   = 1;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 100;    // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
-  uint8_t  speedIncrDelayM   = 10;     // Wait this amount of time in minutes before increasing compressor speed
+  uint8_t  speedIncrDelayM   = 1;      // Wait this amount of time in minutes before increasing compressor speed
   uint8_t  speedDecrDelayM   = 1;      // Wait this amount of time in minutes before decreasing compressor speed
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostStartRt    = 3;      // Minimum compressor runtime in hours before starting defrost
-  uint8_t  defrostStartDc    = 50;     // Maximum allowed compressor duty cycle before starting deforst
+  uint8_t  defrostStartDc    = 60;     // Maximum allowed compressor duty cycle before starting deforst
   uint8_t  defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint8_t  reserved[5];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
