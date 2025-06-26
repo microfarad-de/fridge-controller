@@ -70,13 +70,15 @@ The chosen PWM frequency has proven to work well with the Secop controller model
 
 ## Speed Control Algorithm
 
-Once the minimum compressor on duration elapses, the speed controller waits for an additional configurable speed adjust delay. Once the delay duration has elapsed, the controller starts ramping up the compressor RPM by decreasing the AnalogWrite() input value by a predetermined number of steps every minute.
+The compressor speed is continuously adjusted to maintain a configurable **target duty cycle**. This is achieved through a **closed-loop control algorithm**, which operates as follows:
 
-As the RPM increases, the compressor would require less runtime in order to achieve the required cooling capacity. Hence, the speed will stop increasing once its minimum on duration plus the speed adjust delay are no longer being exceeded.
+- If the **measured average compressor duty cycle** exceeds the target, the speed is gradually **reduced** by a specified number of `analogWrite` steps per minute.
+- If the **measured duty cycle** falls **below the target minus a defined hysteresis**, the compressor speed is gradually **increased** by the same step rate.
 
-Conversely, if the compressor off duration exceeds the minimum allowed off duration plus the speed adjust delay, the speed controller starts ramping down the compressor RPM by gradually increasing the AnalogWrite() input value until the off duration gets short enough to prevent any further RPM decrease.
+Speed adjustments are suspended if:
+- There are **insufficient duty cycle samples** accumulated for reliable measurement.
+- The feature has been **manually disabled** by the user.
 
-The AnalogWrite() input value is allowed to be adjusted within a preconfigured range corresponding to the minimum and maximum compressor RPMs.
 
 ## Evaporator Defrost Routine
 
@@ -102,9 +104,9 @@ Following are some of the available commands:
 * `offd <0..60>`: Set the minimum compressor off duration in minutes
 * `pwml <1..255>`: Set the AnalogWrite() input value for minimum allowed RPM
 * `pwmh <1..255>`: Set the AnalogWrite() input value for maximum allowed RPM
-* `spdi <0..60>`: Set the speed increase delay in minutes
-* `spdd <0..60>`: Set the speed decrease delay in minutes
-* `spdr <0..255>`: Set the speed increase adjust rate in AnalogWrite() steps per minute (0 = disabled)
+* `spdc <31..99>`: Set the speed adjustment target duty cycle in percent
+* `spdh <1..30>`: Set the speed adjustment hysteresis value in percent
+* `spdr <1..255>`: Set the speed adjustment rate in AnalogWrite() steps per minute (0 = disabled)
 * `defr <0..24>`: Set the defrost the minimum compressor runtime hours for starting a defrost cycle
 * `defc <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
 * `defd <0..60>`: Set the defrost cycle duration in minutes (0 = disabled)
