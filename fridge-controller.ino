@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.0.1
- * Date:    June 26, 2025
+ * Version: 3.1.0
+ * Date:    June 27, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 0  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MINOR 1  // Minor version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -68,7 +68,8 @@
 #define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in milliseconds
 #define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive speed adjustments
 #define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
-#define SPEED_LOCK_ON_DELAY_M     30         // Time delay in minutes for activating the speed lock
+#define SPEED_RAMPUP_RATE         5          // Speed adjust rate in AnalogWrite() steps per 10 sec for soft speed rampup
+#define SPEED_LOCK_ON_DELAY_M     20         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    10         // Time delay in minutes for deactivating the speed lock
 #define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
 #define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
@@ -138,7 +139,7 @@ struct Nvm_t {
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
   uint8_t  speedTargetDuty   = 95;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 10;     // Hysteresis of speed adjustment algorithm in duty cycle percent
-  uint8_t  speedAdjustRate   = 2;      // Increase or decrease PWM by this amount of steps per minute
+  uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostStartRt    = 3;      // Minimum compressor runtime in hours before starting defrost
   uint8_t  defrostStartDc    = 70;     // Maximum allowed compressor duty cycle before starting deforst
   uint8_t  defrostDurationM  = 45;     // Defrost cycle duration in minutes
@@ -248,17 +249,17 @@ void setup (void)
   Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
   Cli.newCmd    ("s",       "Show the system status",        cmdStatus);
   Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
-  Cli.newCmd    ("t",       "Print the trace log or enable/disable trace (arg: [0,1])", cmdTrace);
-  Cli.newCmd    ("ond",     "Set min on duration (arg: <0..60>m)",  cmdSetMinOnDuration);
-  Cli.newCmd    ("offd",    "Set min off duration (arg: <0..60>m)", cmdSetMinOffDuration);
-  Cli.newCmd    ("pwml",    "Set the PWM duty for min RPM (arg: <1..255>)", cmdSetMinDutyCycle);
-  Cli.newCmd    ("pwmh",    "Set the PWM duty for max RPM (arg: <1..255>)", cmdSetMaxDutyCycle);
-  Cli.newCmd    ("spdc",    "Set speed adjust target duty cycle (arg: <31..99>%)", cmdSetSpeedDutyCycle);
-  Cli.newCmd    ("spdh",    "Set speed adjust hysteresis (arg: <1..30>%)", cmdSetSpeedHysteresis);
-  Cli.newCmd    ("spdr",    "Set speed adjust rate (arg <0..255>)", cmdSetSpeedRate);
-  Cli.newCmd    ("defr",    "Set defrost start runtime (arg <0..24>h)", cmdSetDefrostRt);
-  Cli.newCmd    ("defc",    "Set defrost start duty cycle (arg <0..100>%)", cmdSetDefrostDc);
-  Cli.newCmd    ("defd",    "Set defrost duration (arg <0..60>m)", cmdSetDefrostDuration);
+  Cli.newCmd    ("t",       "Print or enable/disable trace ([0,1])", cmdTrace);
+  Cli.newCmd    ("ond",     "Set min on duration (<0..60>m)",  cmdSetMinOnDuration);
+  Cli.newCmd    ("offd",    "Set min off duration (<0..60>m)", cmdSetMinOffDuration);
+  Cli.newCmd    ("pwml",    "Set the PWM duty for min RPM (<1..255>)", cmdSetMinDutyCycle);
+  Cli.newCmd    ("pwmh",    "Set the PWM duty for max RPM (<1..255>)", cmdSetMaxDutyCycle);
+  Cli.newCmd    ("spdc",    "Set speed adjust target duty cycle (<41..99>%)", cmdSetSpeedDutyCycle);
+  Cli.newCmd    ("spdh",    "Set speed adjust hysteresis (<1..40>%)", cmdSetSpeedHysteresis);
+  Cli.newCmd    ("spdr",    "Set speed adjust rate (<0..255>)", cmdSetSpeedRate);
+  Cli.newCmd    ("defr",    "Set defrost start runtime (<0..24>h)", cmdSetDefrostRt);
+  Cli.newCmd    ("defc",    "Set defrost start duty cycle (<0..100>%)", cmdSetDefrostDc);
+  Cli.newCmd    ("defd",    "Set defrost duration (<0..60>m)", cmdSetDefrostDuration);
 
   Cli.showHelp();
 
@@ -454,10 +455,10 @@ void ledManager (void)
 /*
  * Decrement PWM duty cycle by one adjustment step
  */
-bool decrementPwm (uint8_t * pwm)
+bool decrementPwm (uint8_t * pwm, uint8_t steps)
 {
-  if (*pwm - Nvm.speedAdjustRate > Nvm.maxRpmDutyCycle) {
-    *pwm -= Nvm.speedAdjustRate;
+  if (*pwm - steps > Nvm.maxRpmDutyCycle) {
+    *pwm -= steps;
     DEBUG(Serial.println("Decrement PWM"));
     return true;
   }
@@ -475,10 +476,10 @@ bool decrementPwm (uint8_t * pwm)
 /*
  * increment PWM duty cycle by one adjustment step
  */
-bool incrementPwm (uint8_t *pwm)
+bool incrementPwm (uint8_t *pwm, uint8_t steps)
 {
-  if (*pwm + Nvm.speedAdjustRate < Nvm.minRpmDutyCycle) {
-    *pwm += Nvm.speedAdjustRate;
+  if (*pwm + steps < Nvm.minRpmDutyCycle) {
+    *pwm += steps;
     DEBUG(Serial.println("Increment PWM"));
     return true;
   }
@@ -499,7 +500,7 @@ bool incrementPwm (uint8_t *pwm)
  */
 void setPwm (void)
 {
-  static uint8_t  lastPwmDutyCycle = 255 - Nvm.minRpmDutyCycle > Nvm.speedAdjustRate ? Nvm.minRpmDutyCycle + Nvm.speedAdjustRate : 255;
+  static uint8_t  lastPwmDutyCycle = Nvm.minRpmDutyCycle + SPEED_RAMPUP_RATE < 255 ? Nvm.minRpmDutyCycle + SPEED_RAMPUP_RATE : 255;
   static uint32_t adjustTs         = 0;
   uint32_t ts = millis();
 
@@ -515,7 +516,7 @@ void setPwm (void)
       DEBUG(Serial.println("Stop"));
       S.pwmDutyCycle = 0;
       analogWrite(OUTPUT_PIN, 0);
-      lastPwmDutyCycle = 255 - Nvm.minRpmDutyCycle > Nvm.speedAdjustRate ? Nvm.minRpmDutyCycle + Nvm.speedAdjustRate : 255;
+      lastPwmDutyCycle = Nvm.minRpmDutyCycle + SPEED_RAMPUP_RATE < 255 ? Nvm.minRpmDutyCycle + SPEED_RAMPUP_RATE : 255;
     }
     // Decrease speed
     else if (S.targetPwmDutyCycle >= lastPwmDutyCycle) {
@@ -528,7 +529,7 @@ void setPwm (void)
     else if (S.targetPwmDutyCycle < lastPwmDutyCycle)
     {
       if (ts - adjustTs >= SPEED_RAMPUP_PERIOD_MS) {
-        if (decrementPwm(&lastPwmDutyCycle)) {
+        if (decrementPwm(&lastPwmDutyCycle, SPEED_RAMPUP_RATE)) {
           DEBUG(Serial.println("Ramp up"));
           S.pwmDutyCycle = lastPwmDutyCycle;
           analogWrite(OUTPUT_PIN, S.pwmDutyCycle);
@@ -549,7 +550,14 @@ void setPwm (void)
 void speedManager (void)
 {
   static enum {HOLD, INCREASE, DECREASE} state = HOLD;
-  static uint32_t adjustTs  = 0;
+  static uint32_t adjustTs = 0;
+  static bool     maxSpeed = false;
+
+  if (S.defrost) {
+    state    = HOLD;
+    maxSpeed = true;
+    return;
+  }
 
   if (0 == Nvm.speedAdjustRate || S.dutyValidSamples < DUTY_MEAS_NUM_SAMPLES || S.speedLock) {
     state = HOLD;
@@ -561,7 +569,7 @@ void speedManager (void)
 
   switch (state) {
     case HOLD:
-        if (on && S.dutyCycleValue > Nvm.speedTargetDuty) {
+        if (on && (S.dutyCycleValue > Nvm.speedTargetDuty || maxSpeed)) {
           adjustTs = ts - SPEED_ADJUST_PERIOD_MS;
           state = INCREASE;
         }
@@ -576,11 +584,12 @@ void speedManager (void)
         state = HOLD;
       }
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
-        if (decrementPwm(&S.savedPwmDutyCycle)) {
+        if (decrementPwm(&S.savedPwmDutyCycle, Nvm.speedAdjustRate)) {
           DEBUG(Serial.println("Increase speed"));
           S.targetPwmDutyCycle = S.savedPwmDutyCycle;
           Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
         }
+        maxSpeed = false;
         adjustTs = ts;
       }
       break;
@@ -590,7 +599,7 @@ void speedManager (void)
         state = HOLD;
       }
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
-        if (incrementPwm(&S.savedPwmDutyCycle)) {
+        if (incrementPwm(&S.savedPwmDutyCycle, Nvm.speedAdjustRate)) {
           DEBUG(Serial.println("Decrease speed"));
           Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
         }
@@ -764,12 +773,12 @@ void nvmValidate (void)
   }
 
   result  = Nvm.speedTargetDuty <= 99;
-  result &= Nvm.speedTargetDuty >= 31;
+  result &= Nvm.speedTargetDuty >= 41;
   if (!result) {
     Nvm.speedTargetDuty = NvmInit.speedTargetDuty;
   }
 
-  result  = Nvm.speedHysteresis <= 30;
+  result  = Nvm.speedHysteresis <= 40;
   result &= Nvm.speedHysteresis >= 1;
   if (!result) {
     Nvm.speedHysteresis = NvmInit.speedHysteresis;
@@ -1067,17 +1076,17 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Serial.print(F("  Min on duration    = ")); Serial.print(Nvm.minOnDurationM,  DEC); Serial.println(F("m"));
-  Serial.print(F("  Min off duration   = ")); Serial.print(Nvm.minOffDurationM, DEC); Serial.println(F("m"));
-  Serial.print(F("  Min RPM duty cycle = ")); Serial.println(Nvm.minRpmDutyCycle, DEC);
-  Serial.print(F("  Max RPM duty cycle = ")); Serial.println(Nvm.maxRpmDutyCycle, DEC);
-  Serial.print(F("  Speed duty cycle   = ")); Serial.print(Nvm.speedTargetDuty,  DEC); Serial.println(F("%"));
-  Serial.print(F("  Speed hysteresis   = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
-  Serial.print(F("  Speed adjust rate  = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
-  Serial.print(F("  Defrost start RT   = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h"));
-  Serial.print(F("  Defrost start DC   = ")); Serial.print(Nvm.defrostStartDc,   DEC); Serial.println(F("%"));
-  Serial.print(F("  Defrost duration   = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
-  Serial.print(F("  Trace enabled      = ")); Serial.println(Nvm.traceEnable, DEC);
+  Serial.print(F("  Min on duration   = ")); Serial.print(Nvm.minOnDurationM,  DEC); Serial.println(F("m"));
+  Serial.print(F("  Min off duration  = ")); Serial.print(Nvm.minOffDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  PWM at min RPM    = ")); Serial.println(Nvm.minRpmDutyCycle, DEC);
+  Serial.print(F("  PWM at max RPM    = ")); Serial.println(Nvm.maxRpmDutyCycle, DEC);
+  Serial.print(F("  Speed target DC   = ")); Serial.print(Nvm.speedTargetDuty,  DEC); Serial.println(F("%"));
+  Serial.print(F("  Speed hysteresis  = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
+  Serial.print(F("  Speed adjust rate = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
+  Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h"));
+  Serial.print(F("  Defrost start DC  = ")); Serial.print(Nvm.defrostStartDc,   DEC); Serial.println(F("%"));
+  Serial.print(F("  Defrost duration  = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  Trace enabled     = ")); Serial.println(Nvm.traceEnable, DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
   else         Serial.print(F("  CRC FAIL ("));
   Serial.print(Nvm.crc, HEX); Serial.println(F(")"));

@@ -104,8 +104,8 @@ Following are some of the available commands:
 * `offd <0..60>`: Set the minimum compressor off duration in minutes
 * `pwml <1..255>`: Set the AnalogWrite() input value for minimum allowed RPM
 * `pwmh <1..255>`: Set the AnalogWrite() input value for maximum allowed RPM
-* `spdc <31..99>`: Set the speed adjustment target duty cycle in percent
-* `spdh <1..30>`: Set the speed adjustment hysteresis value in percent
+* `spdc <41..99>`: Set the speed adjustment target duty cycle in percent
+* `spdh <1..40>`: Set the speed adjustment hysteresis value in percent
 * `spdr <1..255>`: Set the speed adjustment rate in AnalogWrite() steps per minute (0 = disabled)
 * `defr <0..24>`: Set the defrost the minimum compressor runtime hours for starting a defrost cycle
 * `defc <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
