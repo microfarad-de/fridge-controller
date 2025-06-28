@@ -28,13 +28,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.1.0
- * Date:    June 27, 2025
+ * Version: 3.2.0
+ * Date:    June 28, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 1  // Minor version
+#define VERSION_MINOR 2  // Minor version
 #define VERSION_MAINT 0  // Maintenance version
 
 
@@ -69,8 +69,8 @@
 #define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive speed adjustments
 #define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
 #define SPEED_RAMPUP_RATE         5          // Speed adjust rate in AnalogWrite() steps per 10 sec for soft speed rampup
-#define SPEED_LOCK_ON_DELAY_M     20         // Time delay in minutes for activating the speed lock
-#define SPEED_LOCK_OFF_DELAY_M    10         // Time delay in minutes for deactivating the speed lock
+#define SPEED_LOCK_ON_DELAY_M     15         // Time delay in minutes for activating the speed lock
+#define SPEED_LOCK_OFF_DELAY_M    15         // Time delay in minutes for deactivating the speed lock
 #define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
 #define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_TIEMOUT_M       60         // Duty cycle measurement is reset after this duration in minutes
@@ -132,7 +132,7 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 10;     // Minimum allowed compressor on duration in minutes
+  uint8_t  minOnDurationM    = 12;     // Minimum allowed compressor on duration in minutes
   uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 80;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
@@ -159,12 +159,11 @@ TraceClass Trace;
  * Trace message lookup table
  */
 const char *traceMsgList[] = {
-  "Compressor on",
-  "Compressor off",
+  "Compressor on (%d%%)",
+  "Compressor off (%d%%)",
   "Power on",
-  "Increase speed %d",
-  "Decrease speed %d",
-  "Set speed %d",
+  "Increase speed (%d)",
+  "Decrease speed (%d)",
   "Speed lock %d",
   "Defrost %d",
   "CRC FAIL",
@@ -175,7 +174,6 @@ enum {
   TRC_POWER_ON,
   TRC_INCREASE_SPEED,
   TRC_DECREASE_SPEED,
-  TRC_SET_SPEED,
   TRC_SPEED_LOCK,
   TRC_DEFROST,
   TRC_CRC_FAIL,
@@ -284,7 +282,6 @@ void loop (void)
   static bool     initialStartup  = true;
   static uint32_t compressorOnTs  = 0;
   static uint32_t compressorOffTs = 0;
-  static uint32_t speedLockTs     = 0;
   uint32_t ts = millis();
 
   Cli.getCmd();
@@ -305,9 +302,8 @@ void loop (void)
     // Compressor OFF state entry point
     case STATE_OFF_ENTRY:
       compressorOffTs      = ts;
-      speedLockTs          = ts;
       S.targetPwmDutyCycle = 0;
-      Trace.log(TRC_COMPRESSOR_OFF);
+      Trace.log(TRC_COMPRESSOR_OFF, S.dutyCycleValue);
 
       if (initialStartup) {
         S.state = STATE_OFF;
@@ -330,22 +326,16 @@ void loop (void)
       if (true == S.inputEnabled) {
         S.state = STATE_ON_ENTRY;
       }
-      if (ts - speedLockTs > SPEED_LOCK_ON_DELAY_M * ONE_MINUTE && !S.speedLock) {
-        S.speedLock = true;
-        S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
-        Trace.log(TRC_SPEED_LOCK, S.speedLock);
-      }
       break;
 
     // Compressor ON state entry point
     case STATE_ON_ENTRY:
       compressorOnTs       = ts;
-      speedLockTs          = ts;
       S.targetPwmDutyCycle = S.savedPwmDutyCycle;
 
       nvmRead ();  // Perform a CRC check
       if (S.crcOk) {
-        Trace.log(TRC_COMPRESSOR_ON);
+        Trace.log(TRC_COMPRESSOR_ON, S.dutyCycleValue);
         S.state = STATE_ON_WAIT;
       }
       else  {
@@ -364,10 +354,6 @@ void loop (void)
     case STATE_ON:
       if (false == S.inputEnabled) {
         S.state = STATE_OFF_ENTRY;
-      }
-      if (ts - speedLockTs > SPEED_LOCK_OFF_DELAY_M * ONE_MINUTE && S.speedLock && S.crcOk) {
-        S.speedLock = false;
-        Trace.log(TRC_SPEED_LOCK, S.speedLock);
       }
       break;
 
@@ -549,9 +535,31 @@ void setPwm (void)
  */
 void speedManager (void)
 {
-  static enum {HOLD, INCREASE, DECREASE} state = HOLD;
-  static uint32_t adjustTs = 0;
-  static bool     maxSpeed = false;
+  static enum {HOLD, INCREASE, DECREASE, MAX_SPEED} state = HOLD;
+  static uint32_t speedLockTs = 0;
+  static uint32_t adjustTs    = 0;
+  static bool     maxSpeed    = false;
+
+  uint32_t ts = millis();
+  bool     on = (S.pwmDutyCycle > 0);
+
+  // Speed lock handling routine
+  if (STATE_OFF_ENTRY == S.state || STATE_ON_ENTRY == S.state) {
+    speedLockTs = ts;
+  }
+  else if (STATE_OFF_WAIT == S.state || STATE_OFF == S.state) {
+    if (ts - speedLockTs >= SPEED_LOCK_ON_DELAY_M * ONE_MINUTE && !S.speedLock) {
+      S.speedLock = true;
+      S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+      Trace.log(TRC_SPEED_LOCK, S.speedLock);
+    }
+  }
+  else if (STATE_ON_WAIT == S.state || STATE_ON == S.state) {
+    if (ts - speedLockTs >= SPEED_LOCK_OFF_DELAY_M * ONE_MINUTE && S.speedLock && S.crcOk) {
+      S.speedLock = false;
+      Trace.log(TRC_SPEED_LOCK, S.speedLock);
+    }
+  }
 
   if (S.defrost) {
     state    = HOLD;
@@ -564,18 +572,18 @@ void speedManager (void)
     return;
   }
 
-  uint32_t ts = millis();
-  bool     on = (S.pwmDutyCycle > 0);
-
   switch (state) {
     case HOLD:
-        if (on && (S.dutyCycleValue > Nvm.speedTargetDuty || maxSpeed)) {
+        if (on && maxSpeed){
+          state = MAX_SPEED;
+        }
+        else if (on && S.dutyCycleValue > Nvm.speedTargetDuty) {
           adjustTs = ts - SPEED_ADJUST_PERIOD_MS;
-          state = INCREASE;
+          state    = INCREASE;
         }
         else if (!on && S.dutyCycleValue < Nvm.speedTargetDuty - Nvm.speedHysteresis) {
           adjustTs = ts - SPEED_ADJUST_PERIOD_MS;
-          state = DECREASE;
+          state    = DECREASE;
         }
       break;
 
@@ -604,6 +612,16 @@ void speedManager (void)
           Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
         }
         adjustTs = ts;
+      }
+      break;
+    case MAX_SPEED:
+      if (!on) {
+        state = HOLD;
+      }
+      else if (maxSpeed) {
+        S.savedPwmDutyCycle  = Nvm.maxRpmDutyCycle;
+        S.targetPwmDutyCycle = S.savedPwmDutyCycle;
+        maxSpeed = false;
       }
       break;
   }
