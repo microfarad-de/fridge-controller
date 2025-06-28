@@ -73,7 +73,6 @@
 #define SPEED_LOCK_OFF_DELAY_M    15         // Time delay in minutes for deactivating the speed lock
 #define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
 #define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
-#define DUTY_MEAS_TIEMOUT_M       60         // Duty cycle measurement is reset after this duration in minutes
 #define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
 
 #define ONE_SECOND  (uint32_t)1000     // One second duration in milliseconds
@@ -676,22 +675,11 @@ void dutyCycleLogger (void)
 {
   static uint32_t captureTs = 0;
   static uint32_t sampleTs  = 0;
-  static uint32_t resetTs   = -DUTY_MEAS_TIEMOUT_M * ONE_MINUTE;
   const  uint32_t sampleDuration = DUTY_MEAS_SAMPLE_DUR_M * ONE_MINUTE;
 
   uint32_t ts = millis();
   uint32_t delta;
   bool     on = (S.pwmDutyCycle > 0);
-
-  if (on) {
-    resetTs = ts;
-  }
-
-  if (ts - resetTs >= DUTY_MEAS_TIEMOUT_M * ONE_MINUTE) {
-    S.dutyValidSamples = 0;
-    captureTs = ts;
-    sampleTs  = ts;
-  }
 
   delta = ts - captureTs;
   if (delta >= ONE_SECOND) {
@@ -879,7 +867,6 @@ int cmdOff (int argc, char **argv)
   Serial.println(F("Compressor off\r\n"));
   return 0;
 }
-
 
 
 /*
