@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 3.2.0
- * Date:    June 28, 2025
+ * Date:    June 29, 2025
  */
 
 
@@ -131,8 +131,8 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 12;     // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
+  uint8_t  minOnDurationM    = 10;     // Minimum allowed compressor on duration in minutes
+  uint8_t  minOffDurationM   = 5;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 80;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
@@ -592,7 +592,6 @@ void speedManager (void)
       }
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (decrementPwm(&S.savedPwmDutyCycle, Nvm.speedAdjustRate)) {
-          DEBUG(Serial.println("Increase speed"));
           S.targetPwmDutyCycle = S.savedPwmDutyCycle;
           Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
         }
@@ -607,7 +606,6 @@ void speedManager (void)
       }
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (incrementPwm(&S.savedPwmDutyCycle, Nvm.speedAdjustRate)) {
-          DEBUG(Serial.println("Decrease speed"));
           Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
         }
         adjustTs = ts;
@@ -620,6 +618,7 @@ void speedManager (void)
       else if (maxSpeed) {
         S.savedPwmDutyCycle  = Nvm.maxRpmDutyCycle;
         S.targetPwmDutyCycle = S.savedPwmDutyCycle;
+        Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
         maxSpeed = false;
       }
       break;
