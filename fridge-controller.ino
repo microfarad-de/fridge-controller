@@ -28,13 +28,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.2.0
- * Date:    June 29, 2025
+ * Version: 3.3.0
+ * Date:    June 30, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 2  // Minor version
+#define VERSION_MINOR 3  // Minor version
 #define VERSION_MAINT 0  // Maintenance version
 
 
@@ -71,6 +71,7 @@
 #define SPEED_RAMPUP_RATE         5          // Speed adjust rate in AnalogWrite() steps per 10 sec for soft speed rampup
 #define SPEED_LOCK_ON_DELAY_M     15         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    15         // Time delay in minutes for deactivating the speed lock
+#define REMOTE_TIMEOUT_M          10         // Remote control timeout in minutes - fall back to local control if no remote commands received during this time
 #define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
 #define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
@@ -117,6 +118,10 @@ struct State_t {
   uint8_t dutyValidSamples   = 0;      // Number of valid duty cycle measurement samples
   uint8_t dutyCycleValue     = 0;      // Average compressor duty cycle value in percent
   uint8_t dutyMeas[DUTY_MEAS_BUF_SIZE] = { 0 };  // Duty cycle measurement array
+  bool    remoteControl      = false;  // Activates remote control - ignore thermostat input value
+  bool    remoteDefrost      = false;  // Activates defrost cycle over remote command
+  uint8_t remotePwm          = 0;      // PWM value configured via remote control command
+  uint32_t remoteTs          = 0;      // Millisecond timestamp for measuring remote control timeout
 } S;
 
 
@@ -131,13 +136,13 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 10;     // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 5;      // Minimum allowed compressor off duration in minutes
+  uint8_t  minOnDurationM    = 12;     // Minimum allowed compressor on duration in minutes
+  uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmDutyCycle   = 80;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
-  uint8_t  speedTargetDuty   = 95;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
-  uint8_t  speedHysteresis   = 10;     // Hysteresis of speed adjustment algorithm in duty cycle percent
+  uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
+  uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostStartRt    = 3;      // Minimum compressor runtime in hours before starting defrost
   uint8_t  defrostStartDc    = 70;     // Maximum allowed compressor duty cycle before starting deforst
@@ -158,13 +163,14 @@ TraceClass Trace;
  * Trace message lookup table
  */
 const char *traceMsgList[] = {
-  "Compressor on (%d%%)",
-  "Compressor off (%d%%)",
+  "Compressor on  %d%%",
+  "Compressor off %d%%",
   "Power on",
-  "Increase speed (%d)",
-  "Decrease speed (%d)",
+  "Increase speed %d",
+  "Decrease speed %d",
   "Speed lock %d",
   "Defrost %d",
+  "Remote %d",
   "CRC FAIL",
 };
 enum {
@@ -175,6 +181,7 @@ enum {
   TRC_DECREASE_SPEED,
   TRC_SPEED_LOCK,
   TRC_DEFROST,
+  TRC_REMOTE,
   TRC_CRC_FAIL,
   TRC_COUNT
 };
@@ -190,6 +197,7 @@ void setPwm (void);
 void ledManager   (void);
 void speedManager (void);
 void defrostManager (void);
+void remoteManager (void);
 void dutyCycleLogger (void);
 uint8_t dutyCycleCalculate(void);
 void nvmValidate  (void);
@@ -197,9 +205,10 @@ void nvmRead      (void);
 void nvmWrite     (void);
 int cmdOn     (int argc, char **argv);
 int cmdOff    (int argc, char **argv);
-int cmdStatus (int argc, char **argv);
-int cmdConfig (int argc, char **argv);
-int cmdTrace  (int argc, char **argv);
+int cmdControl (int argc, char **argv);
+int cmdStatus  (int argc, char **argv);
+int cmdConfig  (int argc, char **argv);
+int cmdTrace   (int argc, char **argv);
 int cmdSetMinOnDuration  (int argc, char **argv);
 int cmdSetMinOffDuration (int argc, char **argv);
 int cmdSetMinDutyCycle   (int argc, char **argv);
@@ -244,6 +253,7 @@ void setup (void)
   printVersion(0);
   Cli.newCmd    ("on",      "Turn on the compressor",  cmdOn);
   Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
+  Cli.newCmd    ("c",       "Remote control <0..10|255>",    cmdControl);
   Cli.newCmd    ("s",       "Show the system status",        cmdStatus);
   Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
   Cli.newCmd    ("t",       "Print or enable/disable trace ([0,1])", cmdTrace);
@@ -292,6 +302,7 @@ void loop (void)
   ledManager();
   speedManager();
   defrostManager();
+  remoteManager();
   dutyCycleLogger();
   powerSave();
 
@@ -399,6 +410,16 @@ void readInputPin (void)
 {
   static uint32_t inputTs = 0;
   uint32_t ts = millis();
+
+  if (S.remoteControl) {
+    if (S.remotePwm > 0) {
+      S.inputEnabled = true;
+    }
+    else {
+      S.inputEnabled = false;
+    }
+    return;
+  }
 
   if (S.inputEnabled) {
     if (LOW == digitalRead(INPUT_PIN)) inputTs = ts;
@@ -651,10 +672,11 @@ void defrostManager (void)
   }
 
   if (false == S.defrost) {
-    if (runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc && STATE_OFF_ENTRY == S.state) {
+    if (((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc) || S.remoteDefrost) && STATE_OFF_ENTRY == S.state) {
       durationTs = ts;
       runtimeS   = 0;
       S.defrost  = true;
+      S.remoteDefrost = false;
       Trace.log(TRC_DEFROST, 1);
     }
   }
@@ -664,6 +686,54 @@ void defrostManager (void)
       Trace.log(TRC_DEFROST, 0);
     }
   }
+}
+
+
+/*
+ * Remote control handling routine
+*/
+void remoteManager (void)
+{
+  if (!S.remoteControl) {
+    S.remotePwm     = 0;
+    S.remoteDefrost = false;
+    return;
+  }
+
+  uint32_t ts = millis();
+
+  if (ts - S.remoteTs >= REMOTE_TIMEOUT_M * ONE_MINUTE) {
+    if (S.remoteControl) {
+      Trace.log(TRC_REMOTE, 0);
+      S.remoteControl = false;
+    }
+
+    return;
+  }
+
+  bool on = (S.pwmDutyCycle > 0);
+
+  if (S.remotePwm > 0) {
+    if (S.speedLock) {
+      if (S.savedPwmDutyCycle != Nvm.minRpmDutyCycle) {
+        S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
+      }
+    }
+    else {
+      if (S.savedPwmDutyCycle > S.remotePwm) {
+        S.savedPwmDutyCycle = S.remotePwm;
+        Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
+      }
+      else if (S.savedPwmDutyCycle < S.remotePwm){
+        S.savedPwmDutyCycle = S.remotePwm;
+        Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
+      }
+    }
+    if (on) {
+      S.targetPwmDutyCycle = S.savedPwmDutyCycle;
+    }
+  }
+
 }
 
 
@@ -869,6 +939,47 @@ int cmdOff (int argc, char **argv)
 
 
 /*
+ * Process remote control command
+ */
+int cmdControl (int argc, char **argv)
+{
+  if (argc != 2) {
+    Serial.println(F("ERROR:1"));
+    return 1;
+  }
+
+  uint8_t value = atoi(argv[1]);
+
+  if (0 == value) {
+    S.remotePwm = 0;
+  }
+  else if (value <= 10) {
+    S.remotePwm = map(value, 1, 10, Nvm.minRpmDutyCycle, Nvm.maxRpmDutyCycle);
+  }
+  else if (255 == value) {
+    if (!S.defrost) {
+      S.remoteDefrost = true;
+    }
+  }
+  else {
+    Serial.println(F("ERROR:2"));
+    return 1;
+  }
+
+  if (!S.remoteControl) {
+    Trace.log(TRC_REMOTE, 1);
+    S.remoteControl = true;
+  }
+
+  S.remoteTs = millis();
+
+  Serial.print(F("OK:"));
+  Serial.println(value, DEC);
+  return 0;
+}
+
+
+/*
  * Set the minimum allowed compressor on duration
  */
 int cmdSetMinOnDuration (int argc, char **argv)
@@ -1045,7 +1156,10 @@ int cmdSetDefrostDuration (int argc, char **argv)
   Nvm.defrostDurationM = duration;
   nvmWrite();
   if (0 == Nvm.defrostDurationM) {
-    S.defrost = false;
+    if (S.defrost) {
+      Trace.log(TRC_DEFROST, 0);
+      S.defrost = false;
+    }
   }
   Serial.print(F("Defrost duration = "));
   Serial.print(Nvm.defrostDurationM, DEC);
@@ -1064,6 +1178,7 @@ int cmdStatus (int argc, char **argv)
   Serial.print(F("  Input status = ")); Serial.println(S.inputEnabled, DEC);
   Serial.print(F("  Speed lock   = ")); Serial.println(S.speedLock, DEC);
   Serial.print(F("  Defrost      = ")); Serial.println(S.defrost, DEC);
+  Serial.print(F("  Remote       = ")); Serial.println(S.remoteControl, DEC);
   Serial.print(F("  Saved PWM    = ")); Serial.println(S.savedPwmDutyCycle, DEC);
   Serial.print(F("  Target PWM   = ")); Serial.println(S.targetPwmDutyCycle, DEC);
   Serial.print(F("  Output PWM   = ")); Serial.println(S.pwmDutyCycle, DEC);

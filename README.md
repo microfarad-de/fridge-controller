@@ -97,6 +97,7 @@ Following are some of the available commands:
 * `h`: Show the help screen
 * `on`: Turn on the compressor
 * `off`: Turn off the compressor
+* `c <0..10|255>`: Remote control command - 0 = off, 1..10 = set speed, 255 = defrost
 * `s`: Show the system status
 * `r`: Show the system configuration stored in EEPROM
 * `t [0,1]`: If argument is set, enable/disable tracing to EEPROM. Otherwise print the trace.
