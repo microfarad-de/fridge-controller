@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 3.3.0
- * Date:    June 30, 2025
+ * Date:    July 01, 2025
  */
 
 
@@ -120,6 +120,7 @@ struct State_t {
   uint8_t dutyMeas[DUTY_MEAS_BUF_SIZE] = { 0 };  // Duty cycle measurement array
   bool    remoteControl      = false;  // Activates remote control - ignore thermostat input value
   bool    remoteDefrost      = false;  // Activates defrost cycle over remote command
+  bool    remoteOn           = false;  // Activates compressor over remote command
   uint8_t remotePwm          = 0;      // PWM value configured via remote control command
   uint32_t remoteTs          = 0;      // Millisecond timestamp for measuring remote control timeout
 } S;
@@ -139,7 +140,7 @@ struct Nvm_t {
   uint8_t  minOnDurationM    = 12;     // Minimum allowed compressor on duration in minutes
   uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmDutyCycle   = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
-  uint8_t  maxRpmDutyCycle   = 80;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
+  uint8_t  maxRpmDutyCycle   = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceEnable       = 1;      // Enable the trace loggings
   uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
@@ -253,7 +254,6 @@ void setup (void)
   printVersion(0);
   Cli.newCmd    ("on",      "Turn on the compressor",  cmdOn);
   Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
-  Cli.newCmd    ("c",       "Remote control <0..10|255>",    cmdControl);
   Cli.newCmd    ("s",       "Show the system status",        cmdStatus);
   Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
   Cli.newCmd    ("t",       "Print or enable/disable trace ([0,1])", cmdTrace);
@@ -267,6 +267,7 @@ void setup (void)
   Cli.newCmd    ("defr",    "Set defrost start runtime (<0..24>h)", cmdSetDefrostRt);
   Cli.newCmd    ("defc",    "Set defrost start duty cycle (<0..100>%)", cmdSetDefrostDc);
   Cli.newCmd    ("defd",    "Set defrost duration (<0..60>m)", cmdSetDefrostDuration);
+  Cli.newCmd    ("c",       "Remote control <command>", cmdControl);
 
   Cli.showHelp();
 
@@ -412,7 +413,7 @@ void readInputPin (void)
   uint32_t ts = millis();
 
   if (S.remoteControl) {
-    if (S.remotePwm > 0) {
+    if (S.remoteOn) {
       S.inputEnabled = true;
     }
     else {
@@ -661,10 +662,12 @@ void defrostManager (void)
 
   if (ts - secondTs >= ONE_SECOND) {
     secondTs += ONE_SECOND;
-    if (on) {
+    if (on && !S.remoteControl) {
       runtimeS++;
     }
-
+    else if (S.remoteControl) {
+      runtimeS = 0;
+    }
   }
 
   if (0 == Nvm.defrostDurationM) {
@@ -696,6 +699,7 @@ void remoteManager (void)
 {
   if (!S.remoteControl) {
     S.remotePwm     = 0;
+    S.remoteOn      = false;
     S.remoteDefrost = false;
     return;
   }
@@ -707,19 +711,11 @@ void remoteManager (void)
       Trace.log(TRC_REMOTE, 0);
       S.remoteControl = false;
     }
-
     return;
   }
 
-  bool on = (S.pwmDutyCycle > 0);
-
   if (S.remotePwm > 0) {
-    if (S.speedLock) {
-      if (S.savedPwmDutyCycle != Nvm.minRpmDutyCycle) {
-        S.savedPwmDutyCycle = Nvm.minRpmDutyCycle;
-      }
-    }
-    else {
+    if (!S.speedLock) {
       if (S.savedPwmDutyCycle > S.remotePwm) {
         S.savedPwmDutyCycle = S.remotePwm;
         Trace.log(TRC_INCREASE_SPEED, S.savedPwmDutyCycle);
@@ -728,12 +724,13 @@ void remoteManager (void)
         S.savedPwmDutyCycle = S.remotePwm;
         Trace.log(TRC_DECREASE_SPEED, S.savedPwmDutyCycle);
       }
-    }
-    if (on) {
-      S.targetPwmDutyCycle = S.savedPwmDutyCycle;
+      bool on = (S.pwmDutyCycle > 0);
+      if (on) {
+        S.targetPwmDutyCycle = S.savedPwmDutyCycle;
+      }
+      S.remotePwm = 0;
     }
   }
-
 }
 
 
@@ -944,37 +941,82 @@ int cmdOff (int argc, char **argv)
 int cmdControl (int argc, char **argv)
 {
   if (argc != 2) {
-    Serial.println(F("ERROR:1"));
+    Serial.println('{');
+    Serial.println(F("  \"error\": 1"));
+    Serial.println('}');
     return 1;
   }
 
   uint8_t value = atoi(argv[1]);
 
+  // 0: Compressor off
   if (0 == value) {
-    S.remotePwm = 0;
+    S.remoteOn = false;
   }
+  // 1..10: Set speed
   else if (value <= 10) {
     S.remotePwm = map(value, 1, 10, Nvm.minRpmDutyCycle, Nvm.maxRpmDutyCycle);
   }
-  else if (255 == value) {
+  // 11: Compressor on
+  else if (11 == value) {
+    S.remoteOn = true;
+  }
+  // 12: Disable remote
+  else if (12 == value) {
+    if (S.remoteControl) {
+      S.remoteControl = false;
+      Trace.log(TRC_REMOTE, 0);
+    }
+  }
+  // 20: Defrost off
+  else if (20 == value) {
+    if (S.defrost) {
+      S.defrost = false;
+      Trace.log(TRC_DEFROST, 0);
+    }
+  }
+  // 21: Defrost on
+  else if (21 == value) {
     if (!S.defrost) {
       S.remoteDefrost = true;
     }
   }
+  // 30: System status
+  else if (30 == value) {
+    Serial.println('{');
+    Serial.println(F("  \"ok\": 30,"));
+    Serial.print(F("  \"state\": ")); Serial.print(S.state, DEC); Serial.println(',');
+    Serial.print(F("  \"inputEnabled\": ")); Serial.print(S.inputEnabled, DEC); Serial.println(',');
+    Serial.print(F("  \"speedLock\": ")); Serial.print(S.speedLock, DEC); Serial.println(',');
+    Serial.print(F("  \"defrost\": ")); Serial.print(S.defrost, DEC); Serial.println(',');
+    Serial.print(F("  \"remote\": ")); Serial.print(S.remoteControl, DEC); Serial.println(',');
+    Serial.print(F("  \"savedPwm\": ")); Serial.print(S.savedPwmDutyCycle, DEC); Serial.println(',');
+    Serial.print(F("  \"targetPwm\": ")); Serial.print(S.targetPwmDutyCycle, DEC); Serial.println(',');
+    Serial.print(F("  \"outputPwm\": ")); Serial.print(S.pwmDutyCycle, DEC); Serial.println(',');
+    Serial.print(F("  \"dutyCycle\": ")); Serial.println(S.dutyCycleValue, DEC);
+    Serial.println('}');
+  }
   else {
-    Serial.println(F("ERROR:2"));
+    Serial.println('{');
+    Serial.println(F("  \"error\": 2"));
+    Serial.println('}');
     return 1;
   }
 
-  if (!S.remoteControl) {
-    Trace.log(TRC_REMOTE, 1);
-    S.remoteControl = true;
+  if (value != 30) {
+    Serial.println('{');
+    Serial.print(F("  \"ok\": ")); Serial.println(value, DEC);
+    Serial.println('}');
   }
 
-  S.remoteTs = millis();
+  if (value < 12) {
+    if (!S.remoteControl) {
+      Trace.log(TRC_REMOTE, 1);
+      S.remoteControl = true;
+    }
+    S.remoteTs = millis();
+  }
 
-  Serial.print(F("OK:"));
-  Serial.println(value, DEC);
   return 0;
 }
 
