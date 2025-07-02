@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.3.0
- * Date:    July 01, 2025
+ * Version: 3.3.1
+ * Date:    July 02, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -662,11 +662,8 @@ void defrostManager (void)
 
   if (ts - secondTs >= ONE_SECOND) {
     secondTs += ONE_SECOND;
-    if (on && !S.remoteControl) {
+    if (on) {
       runtimeS++;
-    }
-    else if (S.remoteControl) {
-      runtimeS = 0;
     }
   }
 
