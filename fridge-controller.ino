@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.3.1
+ * Version: 3.3.2
  * Date:    July 02, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MAINT 2  // Maintenance version
 
 
 #include <Arduino.h>
@@ -674,7 +674,6 @@ void defrostManager (void)
   if (false == S.defrost) {
     if (((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc) || S.remoteDefrost) && STATE_OFF_ENTRY == S.state) {
       durationTs = ts;
-      runtimeS   = 0;
       S.defrost  = true;
       S.remoteDefrost = false;
       Trace.log(TRC_DEFROST, 1);
@@ -682,6 +681,7 @@ void defrostManager (void)
   }
   else {
     if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
+      runtimeS   = 0;
       S.defrost  = false;
       Trace.log(TRC_DEFROST, 0);
     }
