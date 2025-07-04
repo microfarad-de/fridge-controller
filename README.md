@@ -100,7 +100,7 @@ Following are some of the available commands:
 * `c <command>`: Remote control command
 * `s`: Show the system status
 * `r`: Show the system configuration stored in EEPROM
-* `t [0,1]`: If argument is set, enable/disable tracing to EEPROM. Otherwise print the trace.
+* `t [0..2]`: If argument is set, configure the tracing level. Otherwise print the trace.
 * `ond <0..60>`: Set the minimum compressor on duration in minutes
 * `offd <0..60>`: Set the minimum compressor off duration in minutes
 * `pwml <1..255>`: Set the AnalogWrite() input value for minimum allowed RPM

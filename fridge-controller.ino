@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.3.3
- * Date:    July 03, 2025
+ * Version: 3.3.4
+ * Date:    July 04, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 3  // Maintenance version
+#define VERSION_MAINT 4  // Maintenance version
 
 
 #include <Arduino.h>
@@ -141,7 +141,7 @@ struct Nvm_t {
   uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmPwm         = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
-  uint8_t  traceEnable       = 1;      // Enable the trace loggings
+  uint8_t  traceLevel        = 1;      // Trace log level
   uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
@@ -188,6 +188,14 @@ enum {
 };
 static_assert(TRC_COUNT == sizeof(traceMsgList)/sizeof(traceMsgList[0]));
 
+
+/*
+ * Trace macros
+ */
+#define TRACE2(level, msg)       if (Nvm.traceLevel >= level) Trace.log(msg);
+#define TRACE3(level, msg, val)  if (Nvm.traceLevel >= level) Trace.log(msg, val);
+#define GET_MACRO(_1, _2, _3, NAME, ...) NAME
+#define TRACE(...) GET_MACRO(__VA_ARGS__, TRACE3, TRACE2)(__VA_ARGS__)
 
 /*
  * Function declarations
@@ -256,7 +264,7 @@ void setup (void)
   Cli.newCmd    ("off",     "Turn off the compressor", cmdOff);
   Cli.newCmd    ("s",       "Show the system status", cmdStatus);
   Cli.newCmd    ("r",       "Show the system configuration", cmdConfig);
-  Cli.newCmd    ("t",       "Print or enable/disable trace ([0,1])", cmdTrace);
+  Cli.newCmd    ("t",       "Print or set the trace level ([0..2])", cmdTrace);
   Cli.newCmd    ("ond",     "Set min on duration (<0..60>m)", cmdSetMinOnDuration);
   Cli.newCmd    ("offd",    "Set min off duration (<0..60>m)", cmdSetMinOffDuration);
   Cli.newCmd    ("pwml",    "Set the PWM duty for min RPM (<1..255>)", cmdSetMinRpmPwm);
@@ -272,10 +280,10 @@ void setup (void)
   Cli.showHelp();
 
   nvmRead();
-  Trace.log(TRC_POWER_ON);
+  TRACE(1, TRC_POWER_ON);
 
-  if (Nvm.traceEnable) Trace.start();
-  else                 Trace.stop();
+  if (Nvm.traceLevel) Trace.start();
+  else                Trace.stop();
 
   S.savedPwm = Nvm.minRpmPwm;
 
@@ -314,7 +322,7 @@ void loop (void)
     case STATE_OFF_ENTRY:
       compressorOffTs      = ts;
       S.targetPwm = 0;
-      Trace.log(TRC_COMPRESSOR_OFF, S.dutyCycleValue);
+      TRACE(1, TRC_COMPRESSOR_OFF, S.dutyCycleValue);
 
       if (initialStartup) {
         S.state = STATE_OFF;
@@ -346,7 +354,7 @@ void loop (void)
 
       nvmRead ();  // Perform a CRC check
       if (S.crcOk) {
-        Trace.log(TRC_COMPRESSOR_ON, S.dutyCycleValue);
+        TRACE(1, TRC_COMPRESSOR_ON, S.dutyCycleValue);
         S.state = STATE_ON_WAIT;
       }
       else  {
@@ -573,13 +581,13 @@ void speedManager (void)
       S.speedLock = true;
       S.savedPwm  = Nvm.minRpmPwm;
       S.remotePwm = 0;
-      Trace.log(TRC_SPEED_LOCK, S.speedLock);
+      TRACE(2, TRC_SPEED_LOCK, S.speedLock);
     }
   }
   else if (STATE_ON_WAIT == S.state || STATE_ON == S.state) {
     if (ts - speedLockTs >= SPEED_LOCK_OFF_DELAY_M * ONE_MINUTE && S.speedLock && S.crcOk) {
       S.speedLock = false;
-      Trace.log(TRC_SPEED_LOCK, S.speedLock);
+      TRACE(2, TRC_SPEED_LOCK, S.speedLock);
     }
   }
 
@@ -616,7 +624,7 @@ void speedManager (void)
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (decrementPwm(&S.savedPwm, Nvm.speedAdjustRate)) {
           S.targetPwm = S.savedPwm;
-          Trace.log(TRC_INCREASE_SPEED, S.savedPwm);
+          TRACE(1, TRC_INCREASE_SPEED, S.savedPwm);
         }
         maxSpeed = false;
         adjustTs = ts;
@@ -629,7 +637,7 @@ void speedManager (void)
       }
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (incrementPwm(&S.savedPwm, Nvm.speedAdjustRate)) {
-          Trace.log(TRC_DECREASE_SPEED, S.savedPwm);
+          TRACE(1, TRC_DECREASE_SPEED, S.savedPwm);
         }
         adjustTs = ts;
       }
@@ -642,7 +650,7 @@ void speedManager (void)
       else if (maxSpeed) {
         S.savedPwm  = Nvm.maxRpmPwm;
         S.targetPwm = S.savedPwm;
-        Trace.log(TRC_INCREASE_SPEED, S.savedPwm);
+        TRACE(1, TRC_INCREASE_SPEED, S.savedPwm);
         maxSpeed = false;
       }
       break;
@@ -679,14 +687,14 @@ void defrostManager (void)
       runtimeS   = (Nvm.defrostStartRt * (ONE_HOUR / ONE_SECOND)) / 2;  // Restart after half of the runtime duration if interrupted
       S.defrost  = true;
       S.remoteDefrost = false;
-      Trace.log(TRC_DEFROST, 1);
+      TRACE(1, TRC_DEFROST, 1);
     }
   }
   else {
     if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
       runtimeS   = 0;
       S.defrost  = false;
-      Trace.log(TRC_DEFROST, 0);
+      TRACE(1, TRC_DEFROST, 0);
     }
   }
 }
@@ -708,7 +716,7 @@ void remoteManager (void)
 
   if (ts - S.remoteTs >= REMOTE_TIMEOUT_M * ONE_MINUTE) {
     if (S.remoteControl) {
-      Trace.log(TRC_REMOTE, 0);
+      TRACE(1, TRC_REMOTE, 0);
       S.remoteControl = false;
     }
     return;
@@ -718,11 +726,11 @@ void remoteManager (void)
     if (!S.speedLock) {
       if (S.savedPwm > S.remotePwm) {
         S.savedPwm = S.remotePwm;
-        Trace.log(TRC_INCREASE_SPEED, S.savedPwm);
+        TRACE(1, TRC_INCREASE_SPEED, S.savedPwm);
       }
       else if (S.savedPwm < S.remotePwm){
         S.savedPwm = S.remotePwm;
-        Trace.log(TRC_DECREASE_SPEED, S.savedPwm);
+        TRACE(1, TRC_DECREASE_SPEED, S.savedPwm);
       }
       bool on = (S.pwm > 0);
       if (on) {
@@ -876,6 +884,11 @@ void nvmValidate (void)
   if (!result) {
     Nvm.defrostDurationM = NvmInit.defrostDurationM;
   }
+
+  result = Nvm.traceLevel <= 2;
+  if (!result) {
+    Nvm.traceLevel = NvmInit.traceLevel;
+  }
 }
 
 
@@ -891,7 +904,7 @@ void nvmRead (void)
   if (crc != Nvm.crc) {
     S.crcOk = false;
     Serial.println(F("EEPROM CRC check failed - resetting EEPROM contents...\r\n"));
-    Trace.log(TRC_CRC_FAIL);
+    TRACE(1, TRC_CRC_FAIL);
     // Reset NVM on CRC failure
     Nvm.magicWord = 0;
     nvmWrite();
@@ -965,14 +978,14 @@ int cmdControl (int argc, char **argv)
   else if (12 == value) {
     if (S.remoteControl) {
       S.remoteControl = false;
-      Trace.log(TRC_REMOTE, 0);
+      TRACE(1, TRC_REMOTE, 0);
     }
   }
   // 20: Defrost off
   else if (20 == value) {
     if (S.defrost) {
       S.defrost = false;
-      Trace.log(TRC_DEFROST, 0);
+      TRACE(1, TRC_DEFROST, 0);
     }
   }
   // 21: Defrost on
@@ -1011,7 +1024,7 @@ int cmdControl (int argc, char **argv)
 
   if (value < 12) {
     if (!S.remoteControl) {
-      Trace.log(TRC_REMOTE, 1);
+      TRACE(1, TRC_REMOTE, 1);
       S.remoteControl = true;
     }
     S.remoteTs = millis();
@@ -1199,7 +1212,7 @@ int cmdSetDefrostDuration (int argc, char **argv)
   nvmWrite();
   if (0 == Nvm.defrostDurationM) {
     if (S.defrost) {
-      Trace.log(TRC_DEFROST, 0);
+      TRACE(1, TRC_DEFROST, 0);
       S.defrost = false;
     }
   }
@@ -1247,7 +1260,7 @@ int cmdConfig (int argc, char **argv)
   Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h"));
   Serial.print(F("  Defrost start DC  = ")); Serial.print(Nvm.defrostStartDc,   DEC); Serial.println(F("%"));
   Serial.print(F("  Defrost duration  = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
-  Serial.print(F("  Trace enabled     = ")); Serial.println(Nvm.traceEnable,    DEC);
+  Serial.print(F("  Trace level       = ")); Serial.println(Nvm.traceLevel,     DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
   else         Serial.print(F("  CRC FAIL ("));
   Serial.print(Nvm.crc, HEX); Serial.println(F(")"));
@@ -1258,27 +1271,24 @@ int cmdConfig (int argc, char **argv)
 
 
 /*
- * Dump the trace log
+ * Dump the trace log or set the trace level
  */
 int cmdTrace (int argc, char **argv)
 {
   if (2 == argc) {
-    uint8_t enable = atoi(argv[1]);
-    if (1 == enable) {
-      Nvm.traceEnable = true;
-      Trace.start();
-      nvmWrite();
-      Serial.println (F("Trace enabled\r\n"));
-    }
-    else if (0 == enable) {
-      Nvm.traceEnable = false;
+    uint8_t level = atoi(argv[1]);
+    Nvm.traceLevel = level;
+    nvmWrite();
+    if (0 == Nvm.traceLevel) {
       Trace.stop();
-      nvmWrite();
-      Serial.println (F("Trace disabled\r\n"));
     }
     else {
-      return 1;
+      Trace.start();
     }
+    Serial.print(F("Trace level = "));
+    Serial.println(Nvm.traceLevel, DEC);
+    Serial.println("");
+    return 0;
   }
   else {
     Serial.println (F("Trace messages:"));
