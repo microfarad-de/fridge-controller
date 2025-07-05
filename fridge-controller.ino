@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.3.4
- * Date:    July 04, 2025
+ * Version: 3.3.5
+ * Date:    July 05, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 4  // Maintenance version
+#define VERSION_MAINT 5  // Maintenance version
 
 
 #include <Arduino.h>
@@ -110,7 +110,7 @@ struct State_t {
   bool    crcOk              = false;  // CRC check status
   bool    inputEnabled       = false;  // Input pin state after debounce
   bool    speedLock          = true;   // Enforce compressor operation at minimum speed
-  bool    defrost            = false;  // Defrost cycle is active
+  uint8_t defrost            = false;  // Defrost cycle is active
   uint8_t pwm                = 0;      // PWM duty cycle at the output pin
   uint8_t savedPwm           = 0;      // Saved PWM duty cycle
   uint8_t targetPwm          = 0;      // Target PWM duty cycle
@@ -335,7 +335,7 @@ void loop (void)
 
     // Wait for minimum OFF duration
     case STATE_OFF_WAIT:
-      if (ts - compressorOffTs > Nvm.minOffDurationM * ONE_MINUTE && !S.defrost) {
+      if (ts - compressorOffTs > Nvm.minOffDurationM * ONE_MINUTE && S.defrost != 1) {
         S.state = STATE_OFF;
       }
       break;
@@ -591,7 +591,7 @@ void speedManager (void)
     }
   }
 
-  if (S.defrost) {
+  if (1 == S.defrost) {
     state    = HOLD;
     maxSpeed = true;
     return;
@@ -681,19 +681,27 @@ void defrostManager (void)
     return;
   }
 
-  if (false == S.defrost) {
-    if (((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc) || S.remoteDefrost) && STATE_OFF_ENTRY == S.state) {
+  // Defrost off
+  if (0 == S.defrost) {
+    if ((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc) || S.remoteDefrost) {
+      S.defrost = 2;
+    }
+  }
+  // Prepare defrost
+  else if (2 == S.defrost) {
+    if (STATE_OFF_ENTRY == S.state) {
       durationTs = ts;
       runtimeS   = (Nvm.defrostStartRt * (ONE_HOUR / ONE_SECOND)) / 2;  // Restart after half of the runtime duration if interrupted
-      S.defrost  = true;
+      S.defrost  = 1;
       S.remoteDefrost = false;
       TRACE(1, TRC_DEFROST, 1);
     }
   }
+  // Defrost on
   else {
     if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
       runtimeS   = 0;
-      S.defrost  = false;
+      S.defrost  = 0;
       TRACE(1, TRC_DEFROST, 0);
     }
   }
@@ -984,8 +992,11 @@ int cmdControl (int argc, char **argv)
   // 20: Defrost off
   else if (20 == value) {
     if (S.defrost) {
-      S.defrost = false;
+      S.defrost = 0;
       TRACE(1, TRC_DEFROST, 0);
+    }
+    if (S.remoteDefrost) {
+      S.remoteDefrost = false;
     }
   }
   // 21: Defrost on
@@ -1213,7 +1224,7 @@ int cmdSetDefrostDuration (int argc, char **argv)
   if (0 == Nvm.defrostDurationM) {
     if (S.defrost) {
       TRACE(1, TRC_DEFROST, 0);
-      S.defrost = false;
+      S.defrost = 0;
     }
   }
   Serial.print(F("Defrost duration = "));
