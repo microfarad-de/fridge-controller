@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.3.5
- * Date:    July 05, 2025
+ * Version: 3.3.6
+ * Date:    July 11, 2025
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 3  // Minor version
-#define VERSION_MAINT 5  // Maintenance version
+#define VERSION_MAINT 6  // Maintenance version
 
 
 #include <Arduino.h>
@@ -137,7 +137,7 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 12;     // Minimum allowed compressor on duration in minutes
+  uint8_t  minOnDurationM    = 11;     // Minimum allowed compressor on duration in minutes
   uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmPwm         = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
@@ -145,7 +145,7 @@ struct Nvm_t {
   uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
-  uint8_t  defrostStartRt    = 3;      // Minimum compressor runtime in hours before starting defrost
+  uint8_t  defrostStartRt    = 2;      // Minimum compressor runtime in hours before starting defrost
   uint8_t  defrostStartDc    = 70;     // Maximum allowed compressor duty cycle before starting deforst
   uint8_t  defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint8_t  reserved[5];                // Reserved for future use
@@ -593,7 +593,7 @@ void speedManager (void)
 
   if (1 == S.defrost) {
     state    = HOLD;
-    maxSpeed = true;
+    //maxSpeed = true;
     return;
   }
 
