@@ -991,7 +991,7 @@ int cmdControl (int argc, char **argv)
   }
   // 20: Defrost off
   else if (20 == value) {
-    if (S.defrost) {
+    if (1 == S.defrost) {
       S.defrost = 0;
       TRACE(1, TRC_DEFROST, 0);
     }
@@ -1001,7 +1001,7 @@ int cmdControl (int argc, char **argv)
   }
   // 21: Defrost on
   else if (21 == value) {
-    if (!S.defrost) {
+    if (0 == S.defrost) {
       S.remoteDefrost = true;
     }
   }
