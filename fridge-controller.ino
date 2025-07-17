@@ -110,7 +110,7 @@ struct State_t {
   bool    crcOk              = false;  // CRC check status
   bool    inputEnabled       = false;  // Input pin state after debounce
   bool    speedLock          = true;   // Enforce compressor operation at minimum speed
-  uint8_t defrost            = false;  // Defrost cycle is active
+  int8_t  defrost            = 0;      // Defrost cycle is active
   uint8_t pwm                = 0;      // PWM duty cycle at the output pin
   uint8_t savedPwm           = 0;      // Saved PWM duty cycle
   uint8_t targetPwm          = 0;      // Target PWM duty cycle
@@ -147,7 +147,7 @@ struct Nvm_t {
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostStartRt    = 2;      // Minimum compressor runtime in hours before starting defrost
   uint8_t  defrostStartDc    = 70;     // Maximum allowed compressor duty cycle before starting deforst
-  uint8_t  defrostDurationM  = 45;     // Defrost cycle duration in minutes
+  int8_t   defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint8_t  reserved[5];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
@@ -624,7 +624,7 @@ void speedManager (void)
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (decrementPwm(&S.savedPwm, Nvm.speedAdjustRate)) {
           S.targetPwm = S.savedPwm;
-          TRACE(1, TRC_INCREASE_SPEED, S.savedPwm);
+          TRACE(2, TRC_INCREASE_SPEED, S.savedPwm);
         }
         maxSpeed = false;
         adjustTs = ts;
@@ -637,7 +637,7 @@ void speedManager (void)
       }
       else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
         if (incrementPwm(&S.savedPwm, Nvm.speedAdjustRate)) {
-          TRACE(1, TRC_DECREASE_SPEED, S.savedPwm);
+          TRACE(2, TRC_DECREASE_SPEED, S.savedPwm);
         }
         adjustTs = ts;
       }
@@ -677,9 +677,14 @@ void defrostManager (void)
     }
   }
 
-  if (0 == Nvm.defrostDurationM) {
+  if (Nvm.defrostDurationM <= 0) {
+    S.defrost = -1;
     return;
   }
+  else if (S.defrost < 0) {
+    S.defrost = 0;
+  }
+
 
   // Defrost off
   if (0 == S.defrost) {
@@ -888,7 +893,8 @@ void nvmValidate (void)
     Nvm.defrostStartDc = NvmInit.defrostStartDc;
   }
 
-  result = Nvm.defrostDurationM <= 60;
+  result  = Nvm.defrostDurationM <= 60;
+  result &= Nvm.defrostDurationM >= -60;
   if (!result) {
     Nvm.defrostDurationM = NvmInit.defrostDurationM;
   }
@@ -1003,6 +1009,25 @@ int cmdControl (int argc, char **argv)
   else if (21 == value) {
     if (0 == S.defrost) {
       S.remoteDefrost = true;
+    }
+  }
+  // 22: Disable defrost
+  else if (22 == value) {
+    if (Nvm.defrostDurationM > 0) {
+      Nvm.defrostDurationM = -Nvm.defrostDurationM;
+      nvmWrite();
+      TRACE(1, TRC_DEFROST, -1);
+    }
+    if (S.remoteDefrost) {
+      S.remoteDefrost = false;
+    }
+  }
+  // 23: Enable defrost
+  else if (23 == value) {
+    if (Nvm.defrostDurationM < 0) {
+      Nvm.defrostDurationM = -Nvm.defrostDurationM;
+      nvmWrite();
+      TRACE(1, TRC_DEFROST, 0);
     }
   }
   // 30: System status
@@ -1218,7 +1243,7 @@ int cmdSetDefrostDuration (int argc, char **argv)
   if (argc != 2) {
     return 1;
   }
-  uint8_t duration     = atoi(argv[1]);
+  int8_t duration      = atoi(argv[1]);
   Nvm.defrostDurationM = duration;
   nvmWrite();
   if (0 == Nvm.defrostDurationM) {
