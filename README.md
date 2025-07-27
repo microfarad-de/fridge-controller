@@ -148,7 +148,16 @@ The Node-RED flow provides several key functions, including:
 
 
 The Node-RED flow that implements this control algorithm is available on GitHub:
-🔗 [microfarad-de/inetbox2mqtt](https://github.com/microfarad-de/inetbox2mqtt)
+[microfarad-de/inetbox2mqtt](https://github.com/microfarad-de/inetbox2mqtt)
+
+The Node-RED flow depends on several services and scripts provided in the [microfarad-de/nastia-server (venus-os branch)](https://github.com/microfarad-de/nastia-server/tree/venus-os):
+
+- **bt-daemon** – Connects the HC-05 Bluetooth module as an RFCOMM device and restarts the Bluetooth stack automatically if the connection is lost.
+- **gpio-daemon** – Enables Node-RED to access and control Raspberry Pi GPIO pins.
+- **serial-command** – Lets Node-RED send commands over UART to the fridge controller Arduino.
+- **serial-console** – Provides an interactive UART console for direct communication with the Arduino.
+
+
 
 ## Gallery
 
