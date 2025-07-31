@@ -10,7 +10,7 @@ After retrofitting my Dometic RML10 absorption RV refrigerator with a Secop BD35
 
 The controller in this project is positioned between the RML10 output that controls the 12 V heater relay and the BD35F thermostat input. It minimizes frequent compressor cycling by enforcing configurable minimum on and off durations.
 
-Moreover, the controller dynamically adjusts the PWM signal that regulates the compressor's RPM. It continuously monitors the compressor's on and off durations. If the on duration surpasses a specific threshold, the controller gradually increases the compressor speed. Conversely, if the off duration exceeds a certain threshold, the controller gradually reduces the compressor speed.
+Moreover, the controller dynamically adjusts the PWM signal that regulates the compressor's RPM. It continuously monitors the compressor on/off duty cycle. If the on duty cycle surpasses a specific threshold, the controller gradually increases the compressor speed. Conversely, if the duty cycle falls below certain threshold, the controller gradually reduces the compressor speed.
 
 
 ## Circuit Diagram
@@ -130,7 +130,7 @@ Following are some of the available commands:
 * `spdc <41..99>`: Set the speed adjustment target duty cycle in percent
 * `spdh <1..40>`: Set the speed adjustment hysteresis value in percent
 * `spdr <1..255>`: Set the speed adjustment rate in AnalogWrite() steps per minute (0 = disabled)
-* `defr <0..24>`: Set the defrost the minimum compressor runtime hours for starting a defrost cycle
+* `defr <0..24>`: Set the minimum compressor runtime hours for starting a defrost cycle
 * `defc <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
 * `defd <0..60>`: Set the defrost cycle duration in minutes (0 = disabled)
 
@@ -139,7 +139,7 @@ Following are some of the available commands:
 
 The RV uses a Raspberry Pi (RPi) running **Victron Venus OS** to collect data from several onboard devices, including the battery shunt (for charge and current), the solar charge controller, the Truma Combi heater (for indoor temperature), and BLE temperature sensors in the fridge and outside. Using this information, the RPi runs an optimized fridge control algorithm to improve energy efficiency.
 
-A **Node-RED flow** on the RPi processes the sensor data and sends commands to an Arduino that controls the fridge compressor. Communication between the RPi and Arduino is handled over UART, either wirelessly via an HC‑05 Bluetooth module or through a wired connection using an FTDI-compatible USB-to-serial converter.
+A **Node-RED flow** on the RPi processes the sensor data and sends commands to an Arduino that controls the fridge compressor. Communication between the RPi and Arduino is handled over UART wirelessly via an HC-05 Bluetooth module.
 
 Remote control of the fridge is achieved through a set of commands:
 
