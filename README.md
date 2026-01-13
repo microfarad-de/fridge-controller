@@ -61,7 +61,7 @@ The BD35F speed control protocol is described in the Secop BD controllers manual
 
 The compressor speed ranges between 2000 and 3500 RPM and can be either controlled by connecting a coding resistor between the compressor controller's C and T terminals, or by generating a PWM signal between these two pins. Regarding the PWM signal charateristics, the manual only mentions "open collerctor, 5kHz +-5%".
 
-As shown in the circuit diagram, the open collerctor design has been implemented using a TLP127 (LTV-252T) optocoupler connected between the common (C) and temperature sensor (T) compressor controller terminals.
+As shown in the circuit diagram, the open collector design has been implemented using a TLP127 (LTV-252T) optocoupler connected between the common (C) and temperature sensor (T) compressor controller terminals.
 
 Since the exact 5 kHz frequency is not possible to configure out of the box, the PWM frequency of the analog output pin 11 has been configured to 1960.53 Hz. This has been achieved by configuring the clock select bits of Timer/Counter Control Register B (TCCR2B) to clkI/O / 8. Whereas this frequency is derived for an 8 MHz Arduino using the following formulas:
 
