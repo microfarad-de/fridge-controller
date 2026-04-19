@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.4.0
- * Date:    August 10, 2025
+ * Version: 3.4.1
+ * Date:    April 19, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 4  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -140,7 +140,7 @@ struct Nvm_t {
   uint8_t  minOnDurationM    = 9;      // Minimum allowed compressor on duration in minutes
   uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
-  uint8_t  maxRpmPwm         = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
+  uint8_t  maxRpmPwm         = 65;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceLevel        = 1;      // Trace log level
   uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
