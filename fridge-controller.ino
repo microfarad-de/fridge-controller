@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.4.1
- * Date:    April 19, 2026
+ * Version: 3.4.0
+ * Date:    April 22, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 4  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -666,6 +666,7 @@ void defrostManager (void)
   static uint32_t durationTs = 0;
   static uint32_t secondTs   = 0;
   static uint32_t runtimeS   = 0;
+  static uint32_t offTs      = 0;
 
   uint32_t ts = millis();
   bool     on = (S.pwm > 0);
@@ -683,6 +684,14 @@ void defrostManager (void)
   }
   else if (S.defrost < 0) {
     S.defrost = 0;
+  }
+
+  // Cancel defrost if off for more than defrost duration
+  if (on) {
+    offTs = ts;
+  }
+  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (runtimeS > 0)) {
+    runtimeS = 0;
   }
 
 
