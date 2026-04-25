@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.4.0
- * Date:    April 23, 2026
+ * Version: 3.4.1
+ * Date:    April 26, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 4  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -137,8 +137,8 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 9;      // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
+  uint8_t  minOnDurationM    = 5;      // Minimum allowed compressor on duration in minutes
+  uint8_t  minOffDurationM   = 5;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmPwm         = 65;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceLevel        = 1;      // Trace log level
@@ -146,7 +146,7 @@ struct Nvm_t {
   uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostStartRt    = 2;      // Minimum compressor runtime in hours before starting defrost
-  uint8_t  defrostStartDc    = 70;     // Maximum allowed compressor duty cycle before starting deforst
+  uint8_t  defrostMaxDc      = 70;     // Maximum allowed compressor duty cycle before starting deforst
   int8_t   defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint8_t  reserved[5];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
@@ -697,8 +697,9 @@ void defrostManager (void)
 
   // Defrost off
   if (0 == S.defrost) {
-    if ((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostStartDc) || S.remoteDefrost) {
-      runtimeS  = (Nvm.defrostStartRt * (ONE_HOUR / ONE_SECOND)) / 2;  // Restart after half of the runtime duration if interrupted
+    if ((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostMaxDc) || S.remoteDefrost) {
+      // Restart after half of the runtime duration if interrupted
+      runtimeS  = (Nvm.defrostStartRt * (ONE_HOUR / ONE_SECOND)) / 2;
       S.defrost = 2;
     }
   }
@@ -897,9 +898,9 @@ void nvmValidate (void)
     Nvm.defrostStartRt = NvmInit.defrostStartRt;
   }
 
-  result = Nvm.defrostStartDc <= 100;
+  result = Nvm.defrostMaxDc <= 100;
   if (!result) {
-    Nvm.defrostStartDc = NvmInit.defrostStartDc;
+    Nvm.defrostMaxDc = NvmInit.defrostMaxDc;
   }
 
   result  = Nvm.defrostDurationM <= 60;
@@ -1235,10 +1236,10 @@ int cmdSetDefrostDc (int argc, char **argv)
     return 1;
   }
   uint8_t dc         = atoi(argv[1]);
-  Nvm.defrostStartDc = dc;
+  Nvm.defrostMaxDc = dc;
   nvmWrite();
-  Serial.print(F("Defrost start duty cycle = "));
-  Serial.print(Nvm.defrostStartDc, DEC);
+  Serial.print(F("Defrost max duty cycle = "));
+  Serial.print(Nvm.defrostMaxDc, DEC);
   Serial.println(F("%\r\n"));
   return 0;
 }
@@ -1303,7 +1304,7 @@ int cmdConfig (int argc, char **argv)
   Serial.print(F("  Speed hysteresis  = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
   Serial.print(F("  Speed adjust rate = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
   Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h"));
-  Serial.print(F("  Defrost start DC  = ")); Serial.print(Nvm.defrostStartDc,   DEC); Serial.println(F("%"));
+  Serial.print(F("  Defrost max DC    = ")); Serial.print(Nvm.defrostMaxDc,   DEC); Serial.println(F("%"));
   Serial.print(F("  Defrost duration  = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
   Serial.print(F("  Trace level       = ")); Serial.println(Nvm.traceLevel,     DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
