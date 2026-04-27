@@ -137,8 +137,8 @@ struct State_t {
  */
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
-  uint8_t  minOnDurationM    = 5;      // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 5;      // Minimum allowed compressor off duration in minutes
+  uint8_t  minOnDurationM    = 9;      // Minimum allowed compressor on duration in minutes
+  uint8_t  minOffDurationM   = 9;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmPwm         = 65;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceLevel        = 1;      // Trace log level
