@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.4.1
+ * Version: 3.5.0
  * Date:    April 26, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 4  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MINOR 5  // Minor version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -60,7 +60,8 @@
 /*
  * Configuration parameters
  */
-//#define SERIAL_DEBUG                         // Serial debug printing
+//#define SERIAL_DEBUG                       // Serial debug printing
+#define CLOCK_MULTIPLIER          1          // Clock multiplier for fast debugging
 #define SERIAL_BAUD               9600       // Serial communication baud rate
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
 #define TRACE_BUF_SIZE            200        // Trace buffer size in words
@@ -76,9 +77,10 @@
 #define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
 
-#define ONE_SECOND  (uint32_t)1000     // One second duration in milliseconds
-#define ONE_MINUTE  (uint32_t)60000    // One minute duration in milliseconds
-#define ONE_HOUR    (uint32_t)3600000  // One hour duration in milliseconds
+#define ONE_SECOND  ((uint32_t)1000    / CLOCK_MULTIPLIER)  // One second duration in milliseconds
+#define ONE_MINUTE  ((uint32_t)60000   / CLOCK_MULTIPLIER)  // One minute duration in milliseconds
+#define ONE_HOUR    ((uint32_t)3600000 / CLOCK_MULTIPLIER)  // One hour duration in milliseconds
+#define TENTH_HOUR  ((uint32_t)360000  / CLOCK_MULTIPLIER)  // One tenth of an hour (6 min) duration in milliseconds
 
 #ifdef SERIAL_DEBUG
   #define DEBUG(x) x
@@ -107,6 +109,9 @@ typedef enum  {
  */
 struct State_t {
   State_e state = STATE_OFF_ENTRY;     // Main state machine state
+  uint32_t remoteTs          = 0;      // Millisecond timestamp for measuring remote control timeout
+  uint32_t runtime           = 0;      // Cumulative compressor runtime after the last defrost event in seconds
+  uint32_t defrostRtStep     = 0;      // Increment runtime until next defrost by this amount each sucessful defrost second
   bool    crcOk              = false;  // CRC check status
   bool    inputEnabled       = false;  // Input pin state after debounce
   bool    speedLock          = true;   // Enforce compressor operation at minimum speed
@@ -122,7 +127,6 @@ struct State_t {
   bool    remoteDefrost      = false;  // Activates defrost cycle over remote command
   bool    remoteOn           = false;  // Activates compressor over remote command
   uint8_t remotePwm          = 0;      // PWM value configured via remote control command
-  uint32_t remoteTs          = 0;      // Millisecond timestamp for measuring remote control timeout
 } S;
 
 
@@ -145,7 +149,7 @@ struct Nvm_t {
   uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
-  uint8_t  defrostStartRt    = 2;      // Minimum compressor runtime in hours before starting defrost
+  uint8_t  defrostStartRt    = 20;     // Minimum compressor runtime in hours before starting defrost
   uint8_t  defrostMaxDc      = 70;     // Maximum allowed compressor duty cycle before starting deforst
   int8_t   defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint8_t  reserved[5];                // Reserved for future use
@@ -272,7 +276,7 @@ void setup (void)
   Cli.newCmd    ("spdc",    "Set speed adjust target duty cycle (<41..99>%)", cmdSetSpeedDutyCycle);
   Cli.newCmd    ("spdh",    "Set speed adjust hysteresis (<1..40>%)", cmdSetSpeedHysteresis);
   Cli.newCmd    ("spdr",    "Set speed adjust rate (<0..255>)", cmdSetSpeedRate);
-  Cli.newCmd    ("defr",    "Set defrost start runtime (<0..24>h)", cmdSetDefrostRt);
+  Cli.newCmd    ("defr",    "Set defrost start runtime (<0..240>h/10)", cmdSetDefrostRt);
   Cli.newCmd    ("defc",    "Set defrost start duty cycle (<0..100>%)", cmdSetDefrostDc);
   Cli.newCmd    ("defd",    "Set defrost duration (<0..60>m)", cmdSetDefrostDuration);
   Cli.newCmd    ("c",       "Remote control <command>", cmdControl);
@@ -665,7 +669,6 @@ void defrostManager (void)
 {
   static uint32_t durationTs = 0;
   static uint32_t secondTs   = 0;
-  static uint32_t runtimeS   = 0;
   static uint32_t offTs      = 0;
 
   uint32_t ts = millis();
@@ -674,7 +677,11 @@ void defrostManager (void)
   if (ts - secondTs >= ONE_SECOND) {
     secondTs += ONE_SECOND;
     if (on) {
-      runtimeS++;
+      S.runtime++;
+    }
+    else if (1 == S.defrost) {
+      // Gradually increase runtime until next defrost
+      S.runtime -= S.defrostRtStep;
     }
   }
 
@@ -690,22 +697,21 @@ void defrostManager (void)
   if (on) {
     offTs = ts;
   }
-  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (runtimeS > 0)) {
-    runtimeS = 0;
+  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (S.runtime > 0)) {
+    S.runtime = 0;
   }
 
 
   // Defrost off
   if (0 == S.defrost) {
-    if ((runtimeS * ONE_SECOND >= Nvm.defrostStartRt * ONE_HOUR && S.dutyCycleValue <= Nvm.defrostMaxDc) || S.remoteDefrost) {
-      // Restart after half of the runtime duration if interrupted
-      runtimeS  = (Nvm.defrostStartRt * (ONE_HOUR / ONE_SECOND)) / 2;
+    if ((S.runtime * ONE_SECOND >= Nvm.defrostStartRt * TENTH_HOUR && S.dutyCycleValue <= Nvm.defrostMaxDc) || S.remoteDefrost) {
       S.defrost = 2;
     }
   }
   // Prepare defrost
   else if (2 == S.defrost) {
     if (STATE_OFF_ENTRY == S.state) {
+      S.runtime = Nvm.defrostStartRt * TENTH_HOUR / ONE_SECOND;
       durationTs = ts;
       S.defrost  = 1;
       S.remoteDefrost = false;
@@ -715,7 +721,7 @@ void defrostManager (void)
   // Defrost on
   else {
     if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
-      runtimeS  = 0;
+      S.runtime = 0;
       S.defrost = 0;
       TRACE(1, TRC_DEFROST, 0);
     }
@@ -893,7 +899,7 @@ void nvmValidate (void)
     Nvm.speedAdjustRate = NvmInit.speedAdjustRate;
   }
 
-  result = Nvm.defrostStartRt <= 24;
+  result = Nvm.defrostStartRt <= 240;
   if (!result) {
     Nvm.defrostStartRt = NvmInit.defrostStartRt;
   }
@@ -913,6 +919,8 @@ void nvmValidate (void)
   if (!result) {
     Nvm.traceLevel = NvmInit.traceLevel;
   }
+
+  S.defrostRtStep = (Nvm.defrostStartRt * TENTH_HOUR) / (Nvm.defrostDurationM * ONE_MINUTE);
 }
 
 
@@ -1047,8 +1055,9 @@ int cmdControl (int argc, char **argv)
     Serial.print(F("  \"state\": ")); Serial.print(S.state, DEC); Serial.println(',');
     Serial.print(F("  \"inputEnabled\": ")); Serial.print(S.inputEnabled, DEC); Serial.println(',');
     Serial.print(F("  \"speedLock\": ")); Serial.print(S.speedLock, DEC); Serial.println(',');
-    Serial.print(F("  \"defrost\": ")); Serial.print(S.defrost, DEC); Serial.println(',');
     Serial.print(F("  \"remote\": ")); Serial.print(S.remoteControl, DEC); Serial.println(',');
+    Serial.print(F("  \"runtime\": ")); Serial.print(S.runtime, DEC); Serial.println(',');
+    Serial.print(F("  \"defrost\": ")); Serial.print(S.defrost, DEC); Serial.println(',');
     Serial.print(F("  \"savedPwm\": ")); Serial.print(S.savedPwm, DEC); Serial.println(',');
     Serial.print(F("  \"targetPwm\": ")); Serial.print(S.targetPwm, DEC); Serial.println(',');
     Serial.print(F("  \"outputPwm\": ")); Serial.print(S.pwm, DEC); Serial.println(',');
@@ -1222,7 +1231,7 @@ int cmdSetDefrostRt (int argc, char **argv)
   nvmWrite();
   Serial.print(F("Defrost start runtime = "));
   Serial.print(Nvm.defrostStartRt, DEC);
-  Serial.println(F("h\r\n"));
+  Serial.println(F("h/10\r\n"));
   return 0;
 }
 
@@ -1278,8 +1287,9 @@ int cmdStatus (int argc, char **argv)
   Serial.print(F("  State        = ")); Serial.println(S.state, DEC);
   Serial.print(F("  Input status = ")); Serial.println(S.inputEnabled, DEC);
   Serial.print(F("  Speed lock   = ")); Serial.println(S.speedLock, DEC);
-  Serial.print(F("  Defrost      = ")); Serial.println(S.defrost, DEC);
   Serial.print(F("  Remote       = ")); Serial.println(S.remoteControl, DEC);
+  Serial.print(F("  Def runtime  = ")); Serial.print(S.runtime, DEC); Serial.println(F("s"));
+  Serial.print(F("  Defrost      = ")); Serial.println(S.defrost, DEC);
   Serial.print(F("  Saved PWM    = ")); Serial.println(S.savedPwm, DEC);
   Serial.print(F("  Target PWM   = ")); Serial.println(S.targetPwm, DEC);
   Serial.print(F("  Output PWM   = ")); Serial.println(S.pwm, DEC);
@@ -1303,9 +1313,10 @@ int cmdConfig (int argc, char **argv)
   Serial.print(F("  Speed target DC   = ")); Serial.print(Nvm.speedTargetDuty,  DEC); Serial.println(F("%"));
   Serial.print(F("  Speed hysteresis  = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
   Serial.print(F("  Speed adjust rate = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
-  Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h"));
+  Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h/10"));
   Serial.print(F("  Defrost max DC    = ")); Serial.print(Nvm.defrostMaxDc,   DEC); Serial.println(F("%"));
   Serial.print(F("  Defrost duration  = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  Defrost RT step   = ")); Serial.print(S.defrostRtStep, DEC); Serial.println(F("s"));
   Serial.print(F("  Trace level       = ")); Serial.println(Nvm.traceLevel,     DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
   else         Serial.print(F("  CRC FAIL ("));
