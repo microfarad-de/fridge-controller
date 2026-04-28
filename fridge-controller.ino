@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 3.5.0
- * Date:    April 26, 2026
+ * Date:    April 28, 2026
  */
 
 
@@ -152,7 +152,8 @@ struct Nvm_t {
   uint8_t  defrostStartRt    = 20;     // Minimum compressor runtime in hours before starting defrost
   uint8_t  defrostMaxDc      = 70;     // Maximum allowed compressor duty cycle before starting deforst
   int8_t   defrostDurationM  = 45;     // Defrost cycle duration in minutes
-  uint8_t  reserved[5];                // Reserved for future use
+  uint8_t  defrostMinDc      = 20;     // Minimum allowed compressor duty cycle before starting deforst
+  uint8_t  reserved[4];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
 
@@ -228,9 +229,10 @@ int cmdSetMinRpmPwm      (int argc, char **argv);
 int cmdSetMaxRpmPwm      (int argc, char **argv);
 int cmdSetSpeedDutyCycle  (int argc, char **argv);
 int cmdSetSpeedHysteresis (int argc, char **argv);
-int cmdSetSpeedRate      (int argc, char **argv);
-int cmdSetDefrostRt      (int argc, char **argv);
-int cmdSetDefrostDc       (int argc, char **argv);
+int cmdSetSpeedRate       (int argc, char **argv);
+int cmdSetDefrostRt       (int argc, char **argv);
+int cmdSetDefrostMinDc    (int argc, char **argv);
+int cmdSetDefrostMaxDc    (int argc, char **argv);
 int cmdSetDefrostDuration (int argc, char **argv);
 void printVersion (uint8_t indent);
 void helpText (void);
@@ -277,7 +279,8 @@ void setup (void)
   Cli.newCmd    ("spdh",    "Set speed adjust hysteresis (<1..40>%)", cmdSetSpeedHysteresis);
   Cli.newCmd    ("spdr",    "Set speed adjust rate (<0..255>)", cmdSetSpeedRate);
   Cli.newCmd    ("defr",    "Set defrost start runtime (<0..240>h/10)", cmdSetDefrostRt);
-  Cli.newCmd    ("defc",    "Set defrost start duty cycle (<0..100>%)", cmdSetDefrostDc);
+  Cli.newCmd    ("defmin",  "Set min defrost duty cycle (<0..100>%)", cmdSetDefrostMinDc);
+  Cli.newCmd    ("defmax",  "Set max defrost duty cycle (<0..100>%)", cmdSetDefrostMaxDc);
   Cli.newCmd    ("defd",    "Set defrost duration (<0..60>m)", cmdSetDefrostDuration);
   Cli.newCmd    ("c",       "Remote control <command>", cmdControl);
 
@@ -669,7 +672,6 @@ void defrostManager (void)
 {
   static uint32_t durationTs = 0;
   static uint32_t secondTs   = 0;
-  static uint32_t offTs      = 0;
 
   uint32_t ts = millis();
   bool     on = (S.pwm > 0);
@@ -693,12 +695,9 @@ void defrostManager (void)
     S.defrost = 0;
   }
 
-  // Cancel defrost if off for more than defrost duration
-  if (on) {
-    offTs = ts;
-  }
-  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (S.runtime > 0)) {
-    S.runtime = 0;
+  // Prevent defrost for less than minimum compressor duty cycle
+  if (S.dutyCycleValue < Nvm.defrostMinDc) {
+     S.runtime = 0;
   }
 
 
@@ -902,6 +901,11 @@ void nvmValidate (void)
   result = Nvm.defrostStartRt <= 240;
   if (!result) {
     Nvm.defrostStartRt = NvmInit.defrostStartRt;
+  }
+
+  result = Nvm.defrostMinDc <= 100;
+  if (!result) {
+    Nvm.defrostMinDc = NvmInit.defrostMinDc;
   }
 
   result = Nvm.defrostMaxDc <= 100;
@@ -1237,14 +1241,32 @@ int cmdSetDefrostRt (int argc, char **argv)
 
 
 /*
- * Set maximum allowed compressor duty cycle for deforst to start
+ * Set minimum allowed compressor duty cycle for deforst to start
  */
-int cmdSetDefrostDc (int argc, char **argv)
+int cmdSetDefrostMinDc (int argc, char **argv)
 {
   if (argc != 2) {
     return 1;
   }
-  uint8_t dc         = atoi(argv[1]);
+  uint8_t dc       = atoi(argv[1]);
+  Nvm.defrostMinDc = dc;
+  nvmWrite();
+  Serial.print(F("Defrost min duty cycle = "));
+  Serial.print(Nvm.defrostMinDc, DEC);
+  Serial.println(F("%\r\n"));
+  return 0;
+}
+
+
+/*
+ * Set maximum allowed compressor duty cycle for deforst to start
+ */
+int cmdSetDefrostMaxDc (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t dc       = atoi(argv[1]);
   Nvm.defrostMaxDc = dc;
   nvmWrite();
   Serial.print(F("Defrost max duty cycle = "));
@@ -1314,9 +1336,10 @@ int cmdConfig (int argc, char **argv)
   Serial.print(F("  Speed hysteresis  = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
   Serial.print(F("  Speed adjust rate = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
   Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h/10"));
-  Serial.print(F("  Defrost max DC    = ")); Serial.print(Nvm.defrostMaxDc,   DEC); Serial.println(F("%"));
+  Serial.print(F("  Defrost min DC    = ")); Serial.print(Nvm.defrostMinDc,     DEC); Serial.println(F("%"));
+  Serial.print(F("  Defrost max DC    = ")); Serial.print(Nvm.defrostMaxDc,     DEC); Serial.println(F("%"));
   Serial.print(F("  Defrost duration  = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
-  Serial.print(F("  Defrost RT step   = ")); Serial.print(S.defrostRtStep, DEC); Serial.println(F("s"));
+  Serial.print(F("  Defrost RT step   = ")); Serial.print(S.defrostRtStep,      DEC); Serial.println(F("s"));
   Serial.print(F("  Trace level       = ")); Serial.println(Nvm.traceLevel,     DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
   else         Serial.print(F("  CRC FAIL ("));
