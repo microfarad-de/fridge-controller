@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.5.0
- * Date:    April 28, 2026
+ * Version: 3.5.1
+ * Date:    May 12, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 5  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -144,15 +144,15 @@ struct Nvm_t {
   uint8_t  minOnDurationM    = 9;      // Minimum allowed compressor on duration in minutes
   uint8_t  minOffDurationM   = 9;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
-  uint8_t  maxRpmPwm         = 65;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
+  uint8_t  maxRpmPwm         = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceLevel        = 1;      // Trace log level
   uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
-  uint8_t  speedHysteresis   = 5;      // Hysteresis of speed adjustment algorithm in duty cycle percent
+  uint8_t  speedHysteresis   = 15;     // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
   uint8_t  defrostStartRt    = 20;     // Minimum compressor runtime in hours before starting defrost
-  uint8_t  defrostMaxDc      = 70;     // Maximum allowed compressor duty cycle before starting deforst
+  uint8_t  defrostMaxDc      = 95;     // Maximum allowed compressor duty cycle before starting deforst
   int8_t   defrostDurationM  = 45;     // Defrost cycle duration in minutes
-  uint8_t  defrostMinDc      = 20;     // Minimum allowed compressor duty cycle before starting deforst
+  uint8_t  defrostMinDc      = 15;     // Minimum allowed compressor duty cycle before starting deforst
   uint8_t  reserved[4];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
@@ -279,8 +279,8 @@ void setup (void)
   Cli.newCmd    ("spdh",    "Set speed adjust hysteresis (<1..40>%)", cmdSetSpeedHysteresis);
   Cli.newCmd    ("spdr",    "Set speed adjust rate (<0..255>)", cmdSetSpeedRate);
   Cli.newCmd    ("defr",    "Set defrost start runtime (<0..240>h/10)", cmdSetDefrostRt);
-  Cli.newCmd    ("defmin",  "Set min defrost duty cycle (<0..100>%)", cmdSetDefrostMinDc);
-  Cli.newCmd    ("defmax",  "Set max defrost duty cycle (<0..100>%)", cmdSetDefrostMaxDc);
+  Cli.newCmd    ("defl",    "Set min defrost duty cycle (<0..100>%)", cmdSetDefrostMinDc);
+  Cli.newCmd    ("defh",    "Set max defrost duty cycle (<0..100>%)", cmdSetDefrostMaxDc);
   Cli.newCmd    ("defd",    "Set defrost duration (<0..60>m)", cmdSetDefrostDuration);
   Cli.newCmd    ("c",       "Remote control <command>", cmdControl);
 
@@ -1328,19 +1328,19 @@ int cmdStatus (int argc, char **argv)
 int cmdConfig (int argc, char **argv)
 {
   Serial.println (F("System configuration:"));
-  Serial.print(F("  Min on duration   = ")); Serial.print(Nvm.minOnDurationM,   DEC); Serial.println(F("m"));
-  Serial.print(F("  Min off duration  = ")); Serial.print(Nvm.minOffDurationM,  DEC); Serial.println(F("m"));
-  Serial.print(F("  PWM at min RPM    = ")); Serial.println(Nvm.minRpmPwm,      DEC);
-  Serial.print(F("  PWM at max RPM    = ")); Serial.println(Nvm.maxRpmPwm,      DEC);
-  Serial.print(F("  Speed target DC   = ")); Serial.print(Nvm.speedTargetDuty,  DEC); Serial.println(F("%"));
-  Serial.print(F("  Speed hysteresis  = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
-  Serial.print(F("  Speed adjust rate = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
-  Serial.print(F("  Defrost start RT  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h/10"));
-  Serial.print(F("  Defrost min DC    = ")); Serial.print(Nvm.defrostMinDc,     DEC); Serial.println(F("%"));
-  Serial.print(F("  Defrost max DC    = ")); Serial.print(Nvm.defrostMaxDc,     DEC); Serial.println(F("%"));
-  Serial.print(F("  Defrost duration  = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
-  Serial.print(F("  Defrost RT step   = ")); Serial.print(S.defrostRtStep,      DEC); Serial.println(F("s"));
-  Serial.print(F("  Trace level       = ")); Serial.println(Nvm.traceLevel,     DEC);
+  Serial.print(F("  Min on duration    = ")); Serial.print(Nvm.minOnDurationM,   DEC); Serial.println(F("m"));
+  Serial.print(F("  Min off duration   = ")); Serial.print(Nvm.minOffDurationM,  DEC); Serial.println(F("m"));
+  Serial.print(F("  PWM at min RPM     = ")); Serial.println(Nvm.minRpmPwm,      DEC);
+  Serial.print(F("  PWM at max RPM     = ")); Serial.println(Nvm.maxRpmPwm,      DEC);
+  Serial.print(F("  Speed target DC    = ")); Serial.print(Nvm.speedTargetDuty,  DEC); Serial.println(F("%"));
+  Serial.print(F("  Speed hysteresis   = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
+  Serial.print(F("  Speed adjust rate  = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
+  Serial.print(F("  Def start runtime  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h/10"));
+  Serial.print(F("  Def min duty cycle = ")); Serial.print(Nvm.defrostMinDc,     DEC); Serial.println(F("%"));
+  Serial.print(F("  Def max duty cycle = ")); Serial.print(Nvm.defrostMaxDc,     DEC); Serial.println(F("%"));
+  Serial.print(F("  Def decrement step = ")); Serial.print(S.defrostRtStep,      DEC); Serial.println(F("s"));
+  Serial.print(F("  Defrost duration   = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  Trace level        = ")); Serial.println(Nvm.traceLevel,     DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
   else         Serial.print(F("  CRC FAIL ("));
   Serial.print(Nvm.crc, HEX); Serial.println(F(")"));
