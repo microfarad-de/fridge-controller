@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.5.1
- * Date:    May 12, 2026
+ * Version: 3.6.0
+ * Date:    May 14, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 5  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MINOR 6  // Minor version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -73,7 +73,7 @@
 #define SPEED_LOCK_ON_DELAY_M     15         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    5          // Time delay in minutes for deactivating the speed lock
 #define REMOTE_TIMEOUT_M          10         // Remote control timeout in minutes - fall back to local control if no remote commands received during this time
-#define DUTY_MEAS_NUM_SAMPLES     60         // Number of duty cycle measurement samples
+#define DUTY_MEAS_NUM_SAMPLES     120        // Number of duty cycle measurement samples
 #define DUTY_MEAS_SAMPLE_DUR_M    1          // Duty cycle measurement sample duration in minutes
 #define DUTY_MEAS_BUF_SIZE        (DUTY_MEAS_NUM_SAMPLES + 1)  // Duty cycle measurement buffer size
 
@@ -153,7 +153,8 @@ struct Nvm_t {
   uint8_t  defrostMaxDc      = 95;     // Maximum allowed compressor duty cycle before starting deforst
   int8_t   defrostDurationM  = 45;     // Defrost cycle duration in minutes
   uint8_t  defrostMinDc      = 15;     // Minimum allowed compressor duty cycle before starting deforst
-  uint8_t  reserved[4];                // Reserved for future use
+  uint8_t  dutyMeasSamples   = 60;     // Duty cycle measurement samples
+  uint8_t  reserved[3];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
 
@@ -234,6 +235,7 @@ int cmdSetDefrostRt       (int argc, char **argv);
 int cmdSetDefrostMinDc    (int argc, char **argv);
 int cmdSetDefrostMaxDc    (int argc, char **argv);
 int cmdSetDefrostDuration (int argc, char **argv);
+int cmdSetDutyMeasDuration (int argc, char **argv);
 void printVersion (uint8_t indent);
 void helpText (void);
 void callback (void);
@@ -282,6 +284,7 @@ void setup (void)
   Cli.newCmd    ("defl",    "Set min defrost duty cycle (<0..100>%)", cmdSetDefrostMinDc);
   Cli.newCmd    ("defh",    "Set max defrost duty cycle (<0..100>%)", cmdSetDefrostMaxDc);
   Cli.newCmd    ("defd",    "Set defrost duration (<0..60>m)", cmdSetDefrostDuration);
+  Cli.newCmd    ("duty",    "Set duty cycle measurement duration duration (<10.." QUOTE(DUTY_MEAS_NUM_SAMPLES) ">m)", cmdSetDutyMeasDuration);
   Cli.newCmd    ("c",       "Remote control <command>", cmdControl);
 
   Cli.showHelp();
@@ -808,8 +811,11 @@ void dutyCycleLogger (void)
       S.dutyMeasIdx = 0;
     }
     S.dutyMeas[S.dutyMeasIdx] = 0;
-    if (S.dutyValidSamples < DUTY_MEAS_NUM_SAMPLES) {
+    if (S.dutyValidSamples < Nvm.dutyMeasSamples) {
       S.dutyValidSamples++;
+    }
+    else {
+      S.dutyValidSamples = Nvm.dutyMeasSamples;
     }
     S.dutyCycleValue = dutyCycleCalculate();
   }
@@ -917,6 +923,12 @@ void nvmValidate (void)
   result &= Nvm.defrostDurationM >= -60;
   if (!result) {
     Nvm.defrostDurationM = NvmInit.defrostDurationM;
+  }
+
+  result  = Nvm.dutyMeasSamples <= DUTY_MEAS_NUM_SAMPLES;
+  result &= Nvm.dutyMeasSamples >= 10;
+  if (!result) {
+    Nvm.dutyMeasSamples = NvmInit.dutyMeasSamples;
   }
 
   result = Nvm.traceLevel <= 2;
@@ -1301,6 +1313,24 @@ int cmdSetDefrostDuration (int argc, char **argv)
 
 
 /*
+ * Set the duty cycle measurement duration
+ */
+int cmdSetDutyMeasDuration (int argc, char **argv)
+{
+  if (argc != 2) {
+    return 1;
+  }
+  uint8_t samples     = atoi(argv[1]);
+  Nvm.dutyMeasSamples = samples;
+  nvmWrite();
+  Serial.print(F("Duty cycle meas duration = "));
+  Serial.print(Nvm.dutyMeasSamples, DEC);
+  Serial.println(F("m\r\n"));
+  return 0;
+}
+
+
+/*
  * Display the system status
  */
 int cmdStatus (int argc, char **argv)
@@ -1340,6 +1370,7 @@ int cmdConfig (int argc, char **argv)
   Serial.print(F("  Def max duty cycle = ")); Serial.print(Nvm.defrostMaxDc,     DEC); Serial.println(F("%"));
   Serial.print(F("  Def decrement step = ")); Serial.print(S.defrostRtStep,      DEC); Serial.println(F("s"));
   Serial.print(F("  Defrost duration   = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
+  Serial.print(F("  Duty meas duration = ")); Serial.print(Nvm.dutyMeasSamples,  DEC); Serial.println(F("m"));
   Serial.print(F("  Trace level        = ")); Serial.println(Nvm.traceLevel,     DEC);
   if (S.crcOk) Serial.print(F("  CRC PASS ("));
   else         Serial.print(F("  CRC FAIL ("));

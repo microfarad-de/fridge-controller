@@ -134,6 +134,7 @@ Following are some of the available commands:
 * `defl <0..100>`: Set the minimum allowed compressor duty cycle in percent for starting a defrost cycle
 * `defh <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
 * `defd <0..60>`: Set the defrost cycle duration in minutes (0 = disabled)
+* `duty <10..max>`: Set the duty cycle measurement duration
 
 
 ## Remote Operation
