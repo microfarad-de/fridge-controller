@@ -131,10 +131,9 @@ Following are some of the available commands:
 * `spdh <1..40>`: Set the speed adjustment hysteresis value in percent
 * `spdr <1..255>`: Set the speed adjustment rate in AnalogWrite() steps per minute (0 = disabled)
 * `defr <0..240>`: Set the minimum compressor runtime in tenths of an hour (6 minutes) for starting a defrost cycle
-* `defl <0..100>`: Set the minimum allowed compressor duty cycle in percent for starting a defrost cycle
-* `defh <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
+* `defc <0..100>`: Set the maximum allowed compressor duty cycle in percent for starting a defrost cycle
 * `defd <0..60>`: Set the defrost cycle duration in minutes (0 = disabled)
-* `duty <10..max>`: Set the duty cycle measurement duration
+* `duty <10..max>`: Set the duty cycle measurement duration in minutes
 
 
 ## Remote Operation
