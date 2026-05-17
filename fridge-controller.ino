@@ -28,13 +28,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.6.0
- * Date:    May 15, 2026
+ * Version: 3.7.0
+ * Date:    May 17, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 6  // Minor version
+#define VERSION_MINOR 7  // Minor version
 #define VERSION_MAINT 0  // Maintenance version
 
 
@@ -110,6 +110,7 @@ typedef enum  {
 struct State_t {
   State_e state = STATE_OFF_ENTRY;     // Main state machine state
   uint32_t remoteTs          = 0;      // Millisecond timestamp for measuring remote control timeout
+  uint32_t stateTs           = 0;      // Millisecond timestamp for measuring the compressor on/off state duration
   uint32_t runtime           = 0;      // Cumulative compressor runtime after the last defrost event in seconds
   uint32_t defrostRtStep     = 0;      // Increment runtime until next defrost by this amount each sucessful defrost second
   bool    crcOk              = false;  // CRC check status
@@ -327,8 +328,9 @@ void loop (void)
 
     // Compressor OFF state entry point
     case STATE_OFF_ENTRY:
-      compressorOffTs      = ts;
-      S.targetPwm = 0;
+      compressorOffTs = ts;
+      S.stateTs       = ts;
+      S.targetPwm     = 0;
       TRACE(1, TRC_COMPRESSOR_OFF, S.dutyCycleValue);
 
       if (initialStartup) {
@@ -357,6 +359,7 @@ void loop (void)
     // Compressor ON state entry point
     case STATE_ON_ENTRY:
       compressorOnTs = ts;
+      S.stateTs      = ts;
       S.targetPwm    = S.savedPwm;
 
       nvmRead ();  // Perform a CRC check
@@ -604,7 +607,7 @@ void speedManager (void)
     return;
   }
 
-  if (0 == Nvm.speedAdjustRate || S.dutyValidSamples < DUTY_MEAS_NUM_SAMPLES || S.speedLock) {
+  if (0 == Nvm.speedAdjustRate || S.dutyValidSamples < Nvm.dutyMeasSamples || S.speedLock) {
     state = HOLD;
     return;
   }
@@ -972,6 +975,35 @@ void nvmWrite (void)
 
 
 /*
+ * Calculate compressor on/off state duration
+ */
+uint32_t stateDuration(void) {
+  return (millis() - S.stateTs) / ONE_SECOND;
+}
+
+
+/*
+ * Print compressor on/off state duration
+ */
+void printStateDuration(void) {
+  uint32_t since = stateDuration();
+  uint32_t sinceM = since / 60;
+  uint8_t  sinceS = since - sinceM * 60;
+  Serial.print(sinceM, DEC); Serial.print(F("m ")); Serial.print(sinceS, DEC); Serial.println(F("s"));
+}
+
+
+/*
+ * Print defrost start runtime
+ */
+void printDefrostRt(void) {
+  uint8_t defRtH = Nvm.defrostStartRt / 10;
+  uint8_t defRtM = (Nvm.defrostStartRt - defRtH * 10) * 6;
+  Serial.print(defRtH, DEC); Serial.print(F("h ")); Serial.print(defRtM, DEC); Serial.println(F("m"));
+}
+
+
+/*
  * Turn on the compressor
  */
 int cmdOn (int argc, char **argv)
@@ -1074,6 +1106,7 @@ int cmdControl (int argc, char **argv)
     Serial.print(F("  \"savedPwm\": ")); Serial.print(S.savedPwm, DEC); Serial.println(',');
     Serial.print(F("  \"targetPwm\": ")); Serial.print(S.targetPwm, DEC); Serial.println(',');
     Serial.print(F("  \"outputPwm\": ")); Serial.print(S.pwm, DEC); Serial.println(',');
+    Serial.print(F("  \"stateDuration\": ")); Serial.print(stateDuration(), DEC); Serial.println(',');
     Serial.print(F("  \"dutyCycle\": ")); Serial.println(S.dutyCycleValue, DEC);
     Serial.println('}');
   }
@@ -1243,8 +1276,8 @@ int cmdSetDefrostRt (int argc, char **argv)
   Nvm.defrostStartRt = interval;
   nvmWrite();
   Serial.print(F("Defrost start runtime = "));
-  Serial.print(Nvm.defrostStartRt, DEC);
-  Serial.println(F("h/10\r\n"));
+  printDefrostRt();
+  Serial.println();
   return 0;
 }
 
@@ -1325,6 +1358,7 @@ int cmdStatus (int argc, char **argv)
   Serial.print(F("  Saved PWM    = ")); Serial.println(S.savedPwm, DEC);
   Serial.print(F("  Target PWM   = ")); Serial.println(S.targetPwm, DEC);
   Serial.print(F("  Output PWM   = ")); Serial.println(S.pwm, DEC);
+  Serial.print(F("  On/off since = ")); printStateDuration();
   Serial.print(F("  Duty cycle   = ")); Serial.print(S.dutyCycleValue, DEC);
   Serial.print(F("% (")); Serial.print(S.dutyValidSamples * DUTY_MEAS_SAMPLE_DUR_M, DEC); Serial.println(F("m)"));
   Serial.println("");
@@ -1345,7 +1379,7 @@ int cmdConfig (int argc, char **argv)
   Serial.print(F("  Speed target DC    = ")); Serial.print(Nvm.speedTargetDuty,  DEC); Serial.println(F("%"));
   Serial.print(F("  Speed hysteresis   = ")); Serial.print(Nvm.speedHysteresis,  DEC); Serial.println(F("%"));
   Serial.print(F("  Speed adjust rate  = ")); Serial.print(Nvm.speedAdjustRate,  DEC); Serial.println(F("/m"));
-  Serial.print(F("  Def start runtime  = ")); Serial.print(Nvm.defrostStartRt,   DEC); Serial.println(F("h/10"));
+  Serial.print(F("  Def start runtime  = ")); printDefrostRt();
   Serial.print(F("  Def max duty cycle = ")); Serial.print(Nvm.defrostMaxDc,     DEC); Serial.println(F("%"));
   Serial.print(F("  Def decrement step = ")); Serial.print(S.defrostRtStep,      DEC); Serial.println(F("s"));
   Serial.print(F("  Defrost duration   = ")); Serial.print(Nvm.defrostDurationM, DEC); Serial.println(F("m"));
