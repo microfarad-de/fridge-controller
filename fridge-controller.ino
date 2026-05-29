@@ -706,6 +706,7 @@ void defrostManager (void)
   }
   else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (S.runtime > 0)) {
     S.runtime = 0;
+    S.defrost = 0;
   }
 
 
