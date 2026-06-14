@@ -692,6 +692,7 @@ void defrostManager (void)
   }
 
   if (Nvm.defrostDurationM <= 0) {
+    S.runtime = 0;
     S.defrost = -1;
     return;
   }
