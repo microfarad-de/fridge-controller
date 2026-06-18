@@ -70,7 +70,7 @@
 #define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive speed adjustments
 #define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
 #define SPEED_RAMPUP_RATE         5          // Speed adjust rate in AnalogWrite() steps per 10 sec for soft speed rampup
-#define SPEED_LOCK_ON_DELAY_M     15         // Time delay in minutes for activating the speed lock
+#define SPEED_LOCK_ON_DELAY_M     30         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    5          // Time delay in minutes for deactivating the speed lock
 #define REMOTE_TIMEOUT_M          10         // Remote control timeout in minutes - fall back to local control if no remote commands received during this time
 #define DUTY_MEAS_NUM_SAMPLES     120        // Number of duty cycle measurement samples
