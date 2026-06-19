@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.7.1
- * Date:    May 26, 2026
+ * Version: 3.8.0
+ * Date:    June 19, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
-#define VERSION_MINOR 7  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MINOR 8  // Minor version
+#define VERSION_MAINT 0  // Maintenance version
 
 
 #include <Arduino.h>
@@ -65,10 +65,10 @@
 #define SERIAL_BAUD               9600       // Serial communication baud rate
 #define NVM_MAGIC_WORD            0xDEADBEEF // Magic word stored in correctly initialized NVM
 #define TRACE_BUF_SIZE            200        // Trace buffer size in words
-#define TRACE_STAMP_RESOLUTION_MS 60000      // Trace time stamp resolution in milliseconds
+#define TRACE_STAMP_RESOLUTION_S  60         // Trace time stamp resolution in seconds
 #define INPUT_DEBOUNCE_DELAY_MS   1000       // Input debounce time delay in milliseconds
-#define SPEED_ADJUST_PERIOD_MS    60000      // Time delay in milliseconds between consecutive speed adjustments
-#define SPEED_RAMPUP_PERIOD_MS    10000      // Time delay in milliseconds between consecutive speed rampup steps
+#define SPEED_ADJUST_PERIOD_S     60         // Time delay in seconds between consecutive speed adjustments
+#define SPEED_RAMPUP_PERIOD_S     10         // Time delay in seconds between consecutive speed rampup steps
 #define SPEED_RAMPUP_RATE         5          // Speed adjust rate in AnalogWrite() steps per 10 sec for soft speed rampup
 #define SPEED_LOCK_ON_DELAY_M     30         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    5          // Time delay in minutes for deactivating the speed lock
@@ -127,6 +127,7 @@ struct State_t {
   bool    remoteControl      = false;  // Activates remote control - ignore thermostat input value
   bool    remoteDefrost      = false;  // Activates defrost cycle over remote command
   bool    remoteOn           = false;  // Activates compressor over remote command
+  bool    maxSpeed           = false;  // Request maximum compressor speed
   uint8_t remotePwm          = 0;      // PWM value configured via remote control command
 } S;
 
@@ -262,7 +263,7 @@ void setup (void)
   digitalWrite(OUTPUT_PIN, LOW);
 
   Led.initialize(LED_PIN);
-  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_MS, traceMsgList, TRC_COUNT, callback);
+  Trace.initialize(sizeof(Nvm), TRACE_BUF_SIZE, TRACE_STAMP_RESOLUTION_S * ONE_SECOND, traceMsgList, TRC_COUNT, callback);
   Cli.init(SERIAL_BAUD, false, helpText);
 
   Serial.println(F("\r\n+ + +  F R I D G E  C O N T R O L L E R  + + +\r\n"));
@@ -317,8 +318,8 @@ void loop (void)
   readInputPin();
   setPwm();
   ledManager();
-  speedManager();
   defrostManager();
+  speedManager();
   remoteManager();
   dutyCycleLogger();
   powerSave();
@@ -553,7 +554,7 @@ void setPwm (void)
     // Increase speed slowly
     else if (S.targetPwm < lastPwm)
     {
-      if (ts - adjustTs >= SPEED_RAMPUP_PERIOD_MS) {
+      if (ts - adjustTs >= SPEED_RAMPUP_PERIOD_S * ONE_SECOND) {
         if (decrementPwm(&lastPwm, SPEED_RAMPUP_RATE)) {
           DEBUG(Serial.println("Ramp up"));
           S.pwm = lastPwm;
@@ -564,7 +565,7 @@ void setPwm (void)
     }
   }
   else {
-    adjustTs = ts - SPEED_RAMPUP_PERIOD_MS;
+    adjustTs = ts - SPEED_RAMPUP_PERIOD_S * ONE_SECOND;
   }
 }
 
@@ -577,7 +578,6 @@ void speedManager (void)
   static enum {HOLD, INCREASE, DECREASE, MAX_SPEED} state = HOLD;
   static uint32_t speedLockTs = 0;
   static uint32_t adjustTs    = 0;
-  static bool     maxSpeed    = false;
 
   uint32_t ts = millis();
   bool     on = (S.pwm > 0);
@@ -602,8 +602,7 @@ void speedManager (void)
   }
 
   if (1 == S.defrost) {
-    state    = HOLD;
-    maxSpeed = true;
+    state = HOLD;
     return;
   }
 
@@ -614,15 +613,15 @@ void speedManager (void)
 
   switch (state) {
     case HOLD:
-        if (on && maxSpeed){
+        if (on && S.maxSpeed){
           state = MAX_SPEED;
         }
         else if (on && S.dutyCycleValue > Nvm.speedTargetDuty) {
-          adjustTs = ts - SPEED_ADJUST_PERIOD_MS;
+          adjustTs = ts - SPEED_ADJUST_PERIOD_S * ONE_SECOND;
           state    = INCREASE;
         }
         else if (!on && S.dutyCycleValue < Nvm.speedTargetDuty - Nvm.speedHysteresis) {
-          adjustTs = ts - SPEED_ADJUST_PERIOD_MS;
+          adjustTs = ts - SPEED_ADJUST_PERIOD_S * ONE_SECOND;
           state    = DECREASE;
         }
       break;
@@ -631,12 +630,12 @@ void speedManager (void)
       if (!on) {
         state = HOLD;
       }
-      else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
+      else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_S * ONE_SECOND) {
         if (decrementPwm(&S.savedPwm, Nvm.speedAdjustRate)) {
           S.targetPwm = S.savedPwm;
           TRACE(2, TRC_INCREASE_SPEED, S.savedPwm);
         }
-        maxSpeed = false;
+        S.maxSpeed = false;
         adjustTs = ts;
       }
       break;
@@ -645,7 +644,7 @@ void speedManager (void)
       if (on) {
         state = HOLD;
       }
-      else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_MS) {
+      else if (ts - adjustTs >= SPEED_ADJUST_PERIOD_S * ONE_SECOND) {
         if (incrementPwm(&S.savedPwm, Nvm.speedAdjustRate)) {
           TRACE(2, TRC_DECREASE_SPEED, S.savedPwm);
         }
@@ -657,11 +656,11 @@ void speedManager (void)
       if (!on) {
         state = HOLD;
       }
-      else if (maxSpeed) {
+      else if (S.maxSpeed) {
         S.savedPwm  = Nvm.maxRpmPwm;
         S.targetPwm = S.savedPwm;
         TRACE(1, TRC_INCREASE_SPEED, S.savedPwm);
-        maxSpeed = false;
+        S.maxSpeed = false;
       }
       break;
   }
@@ -701,11 +700,11 @@ void defrostManager (void)
   }
 
 
- // Cancel defrost if off for more than defrost duration
+  // Cancel defrost if off for more than defrost duration
   if (on) {
     offTs = ts;
   }
-  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (S.runtime > 0)) {
+  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE) && (S.runtime > 0) && !S.defrost) {
     S.runtime = 0;
     S.defrost = 0;
   }
@@ -730,8 +729,9 @@ void defrostManager (void)
   // Defrost on
   else {
     if (ts - durationTs >= Nvm.defrostDurationM * ONE_MINUTE) {
-      S.runtime = 0;
-      S.defrost = 0;
+      S.runtime  = 0;
+      S.defrost  = 0;
+      S.maxSpeed = true;
       TRACE(1, TRC_DEFROST, 0);
     }
   }
