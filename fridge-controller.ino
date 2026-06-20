@@ -921,8 +921,8 @@ void nvmValidate (void)
     Nvm.defrostMaxDc = NvmInit.defrostMaxDc;
   }
 
-  result  = Nvm.defrostDurationM <= 60;
-  result &= Nvm.defrostDurationM >= -60;
+  result  = Nvm.defrostDurationM <= 120;
+  result &= Nvm.defrostDurationM >= -120;
   if (!result) {
     Nvm.defrostDurationM = NvmInit.defrostDurationM;
   }
