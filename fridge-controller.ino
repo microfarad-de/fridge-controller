@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.8.0
- * Date:    June 19, 2026
+ * Version: 3.8.1
+ * Date:    June 20, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 8  // Minor version
-#define VERSION_MAINT 0  // Maintenance version
+#define VERSION_MAINT 1  // Maintenance version
 
 
 #include <Arduino.h>
@@ -938,7 +938,12 @@ void nvmValidate (void)
     Nvm.traceLevel = NvmInit.traceLevel;
   }
 
-  S.defrostRtStep = (Nvm.defrostStartRt * TENTH_HOUR) / (Nvm.defrostDurationM * ONE_MINUTE);
+  if (Nvm.defrostDurationM > 0) {
+    S.defrostRtStep = (Nvm.defrostStartRt * TENTH_HOUR) / (Nvm.defrostDurationM * ONE_MINUTE);
+  }
+  else {
+    S.defrostRtStep = 0;
+  }
 }
 
 
