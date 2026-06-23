@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 3.8.1
- * Date:    June 20, 2026
+ * Date:    June 23, 2026
  */
 
 
@@ -712,14 +712,19 @@ void defrostManager (void)
 
   // Defrost off
   if (0 == S.defrost) {
-    if ((S.runtime * ONE_SECOND >= Nvm.defrostStartRt * TENTH_HOUR && S.dutyCycleValue <= Nvm.defrostMaxDc) || S.remoteDefrost) {
+    if ((S.runtime * ONE_SECOND >= Nvm.defrostStartRt * TENTH_HOUR && S.dutyCycleValue <= Nvm.defrostMaxDc && Nvm.defrostStartRt > 0) || S.remoteDefrost) {
       S.defrost = 2;
     }
   }
   // Prepare defrost
   else if (2 == S.defrost) {
     if (STATE_OFF_ENTRY == S.state) {
-      S.runtime = Nvm.defrostStartRt * TENTH_HOUR / ONE_SECOND;
+      if (Nvm.defrostStartRt > 0) {
+        S.runtime = Nvm.defrostStartRt * TENTH_HOUR / ONE_SECOND;
+      }
+      else {
+        S.runtime = 0;
+      }
       durationTs = ts;
       S.defrost  = 1;
       S.remoteDefrost = false;
