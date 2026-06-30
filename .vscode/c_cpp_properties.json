@@ -8,9 +8,13 @@
             "intelliSenseMode": "${default}",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include/**",
                 "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/cores/arduino/**",
                 "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/standard/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/eightanaloginputs/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/libraries/EEPROM/src/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/lib/gcc/avr/7.3.0/include/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/lib/gcc/avr/7.3.0/include-fixed/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include/**",
                 "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include/avr/**"
             ],
             "forcedInclude": [],
@@ -35,12 +39,15 @@
             ],
             "intelliSenseMode": "gcc-x64",
             "includePath": [
-                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/cores/arduino",
-                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/eightanaloginputs",
-                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/libraries/EEPROM/src",
-                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/lib/gcc/avr/7.3.0/include",
-                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/lib/gcc/avr/7.3.0/include-fixed",
-                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include"
+                "${workspaceFolder}/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/cores/arduino/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/standard/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/variants/eightanaloginputs/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/libraries/EEPROM/src/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/lib/gcc/avr/7.3.0/include/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/lib/gcc/avr/7.3.0/include-fixed/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include/**",
+                "/Applications/Arduino.app/Contents/Java/hardware/tools/avr/avr/include/avr/**"
             ],
             "forcedInclude": [
                 "/Applications/Arduino.app/Contents/Java/hardware/arduino/avr/cores/arduino/Arduino.h"
