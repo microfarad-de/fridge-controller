@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.9.1
+ * Version: 3.9.2
  * Date:    July 02, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 9  // Minor version
-#define VERSION_MAINT 1  // Maintenance version
+#define VERSION_MAINT 2  // Maintenance version
 
 
 #include <Arduino.h>
@@ -148,10 +148,10 @@ struct Nvm_t {
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmPwm         = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceLevel        = 1;      // Trace log level
-  uint8_t  speedTargetDuty   = 85;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
+  uint8_t  speedTargetDuty   = 84;     // Target duty compressor duty cycle of speed adjustment algorithm in percent
   uint8_t  speedHysteresis   = 15;     // Hysteresis of speed adjustment algorithm in duty cycle percent
   uint8_t  speedAdjustRate   = 5;      // Increase or decrease PWM by this amount of steps per minute
-  uint8_t  defrostStartRt    = 30;     // Minimum compressor runtime in 1/10 hours before starting defrost
+  uint8_t  defrostStartRt    = 0;      // Minimum compressor runtime in 1/10 hours before starting defrost
   uint8_t  defrostMaxDc      = 70;     // Maximum allowed compressor duty cycle before starting deforst
   int8_t   defrostDurationM  = 60;     // Defrost cycle duration in minutes
   uint8_t  dutyMeasSamples   = 60;     // Duty cycle measurement samples
