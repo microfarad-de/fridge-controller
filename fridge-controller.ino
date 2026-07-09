@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.9.2
- * Date:    July 02, 2026
+ * Version: 3.9.3
+ * Date:    July 09, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 9  // Minor version
-#define VERSION_MAINT 2  // Maintenance version
+#define VERSION_MAINT 3  // Maintenance version
 
 
 #include <Arduino.h>
@@ -704,7 +704,7 @@ void defrostManager (void)
   if (on) {
     offTs = ts;
   }
-  else if ((ts - offTs >= Nvm.defrostDurationM * ONE_MINUTE)) {
+  else if ((ts - offTs > Nvm.defrostDurationM * ONE_MINUTE) && 1 != S.defrost) {
     S.runtime = 0;
     S.defrost = 0;
   }
