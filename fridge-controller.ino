@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.9.3
- * Date:    July 09, 2026
+ * Version: 3.9.4
+ * Date:    July 10, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 9  // Minor version
-#define VERSION_MAINT 3  // Maintenance version
+#define VERSION_MAINT 4  // Maintenance version
 
 
 #include <Arduino.h>
