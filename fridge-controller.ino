@@ -29,7 +29,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  * Version: 3.9.4
- * Date:    July 10, 2026
+ * Date:    July 18, 2026
  */
 
 
@@ -144,7 +144,7 @@ struct State_t {
 struct Nvm_t {
   uint32_t magicWord = NVM_MAGIC_WORD; // Magic word proves correctly initialized NVM
   uint8_t  minOnDurationM    = 9;      // Minimum allowed compressor on duration in minutes
-  uint8_t  minOffDurationM   = 9;      // Minimum allowed compressor off duration in minutes
+  uint8_t  minOffDurationM   = 3;      // Minimum allowed compressor off duration in minutes
   uint8_t  minRpmPwm         = 190;    // PWM duty cycle for minimum compressor RPM (1..255), larger value decreases RPM
   uint8_t  maxRpmPwm         = 70;     // PWM duty cycle for maximum compressor RPM (1..255), smaller value increases RPM
   uint8_t  traceLevel        = 1;      // Trace log level
@@ -704,9 +704,10 @@ void defrostManager (void)
   if (on) {
     offTs = ts;
   }
-  else if ((ts - offTs > Nvm.defrostDurationM * ONE_MINUTE) && 1 != S.defrost) {
-    S.runtime = 0;
-    S.defrost = 0;
+  else if (ts - offTs > Nvm.defrostDurationM * ONE_MINUTE) {
+    S.runtime       = 0;
+    S.defrost       = 0;
+    S.remoteDefrost = 0;
   }
 
 
