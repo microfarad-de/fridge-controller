@@ -388,6 +388,7 @@ void loop (void)
       break;
 
     default:
+      S.state = STATE_OFF_ENTRY;
       break;
   }
 }
