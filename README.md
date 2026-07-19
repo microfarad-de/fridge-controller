@@ -201,6 +201,8 @@ The Node-RED flow depends on several services and scripts provided in the [micro
 
 The code has been implemented and tested on an Arduino Pro Mini clone board based on the ATmega328P microcontroller.
 
+The code uses the watchdog timer, therefore the custom bootloader with watchdog support must be installed from: https://github.com/microfarad-de/bootloader
+
 This project uses Git submodules. In order to get its full source code, please clone this Git repository to your local workspace, then execute the follwoing command from within the repository's root directory: `git submodule update --init`.
 
 The following dependencies should to be installed:

@@ -246,6 +246,9 @@ void callback (void);
  */
 void setup (void)
 {
+  // Clear watchdog reset flag
+  MCUSR &= ~(1 << WDRF);
+
   // Set PWM frequency on pins 3 and 11 which are controlled by Timer/Counter 2
   // See https://www.etechnophiles.com/how-to-change-the-pwm-frequency-of-arduino-nano/
   // See ATmega328P datasheet Section 22.11.2, Table 22-10
