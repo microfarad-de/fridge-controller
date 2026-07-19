@@ -260,6 +260,15 @@ void setup (void)
   ADCSRA &= ~_BV(ADEN);
   power_adc_disable();
 
+  // Make all GPIO pins inputs with pull-ups to save power
+  // except crystal pins.
+  DDRB  = 0x00;
+  DDRC  = 0x00;
+  DDRD  = 0x00;
+  PORTB = 0x3F;   // D8–D13 pull-ups enabled
+  PORTC = 0x3F;   // A0–A5 pull-ups enabled
+  PORTD = 0xFF;   // D0–D7 pull-ups enabled
+
   pinMode(INPUT_PIN, INPUT_PULLUP);
   pinMode(OUTPUT_PIN, OUTPUT);
 
