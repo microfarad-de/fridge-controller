@@ -28,14 +28,14 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Version: 3.9.5
+ * Version: 3.9.6
  * Date:    July 22, 2026
  */
 
 
 #define VERSION_MAJOR 3  // Major version
 #define VERSION_MINOR 9  // Minor version
-#define VERSION_MAINT 5  // Maintenance version
+#define VERSION_MAINT 6  // Maintenance version
 
 
 #include <Arduino.h>
@@ -70,7 +70,7 @@
 #define SPEED_ADJUST_PERIOD_S     60         // Time delay in seconds between consecutive speed adjustments
 #define SPEED_RAMPUP_PERIOD_S     10         // Time delay in seconds between consecutive speed rampup steps
 #define SPEED_RAMPUP_RATE         5          // Speed adjust rate in AnalogWrite() steps per 10 sec for soft speed rampup
-#define SPEED_LOCK_ON_DELAY_M     15         // Time delay in minutes for activating the speed lock
+#define SPEED_LOCK_ON_DELAY_M     20         // Time delay in minutes for activating the speed lock
 #define SPEED_LOCK_OFF_DELAY_M    10         // Time delay in minutes for deactivating the speed lock
 #define REMOTE_TIMEOUT_M          10         // Remote control timeout in minutes - fall back to local control if no remote commands received during this time
 #define DUTY_MEAS_NUM_SAMPLES     120        // Number of duty cycle measurement samples
@@ -158,6 +158,7 @@ struct Nvm_t {
   uint8_t  reserved[4];                // Reserved for future use
   uint32_t crc               = 0;      // CRC checksum
 } Nvm;
+
 
 
 /*
@@ -344,6 +345,8 @@ void loop (void)
       compressorOffTs = ts;
       S.stateTs       = ts;
       S.targetPwm     = 0;
+      S.maxSpeed      = false;  // Cancel max speed and remote PWM requests
+      S.remotePwm     = 0;      // if request was never applied due to active speed lock
       TRACE(1, TRC_COMPRESSOR_OFF, S.dutyCycleValue);
 
       if (initialStartup) {
